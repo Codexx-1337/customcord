@@ -1213,29 +1213,68 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     function injectTokenLoginUI() {
         ensureTokenModal();
 
-        const submitBtn = document.querySelector('button[type="submit"]');
-        const hasPassword = document.querySelector('input[name="password"]');
-        const isLoginPage = window.location.pathname.includes('/login') || hasPassword;
+        const passwordInput = document.querySelector('input[type="password"], input[name="password"], input[autocomplete="current-password"]');
+        const isLoginPage = window.location.pathname.includes('/login') || !!passwordInput;
 
-        if (isLoginPage && submitBtn && !document.getElementById('customcord-token-login-btn')) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.id = 'customcord-token-login-btn';
-            btn.className = 'customcord-token-login-btn';
-            btn.innerHTML = `
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
-                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                </svg>
-                Войти с помощью токена
-            `;
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openTokenModal();
-            });
+        if (isLoginPage) {
+            // 1. Кнопка под формой входа (слева, под кнопкой "Вход")
+            if (!document.getElementById('customcord-token-login-btn')) {
+                let submitBtn = document.querySelector('button[type="submit"]');
+                if (!submitBtn && passwordInput) {
+                    const form = passwordInput.closest('form') || passwordInput.closest('div');
+                    if (form) {
+                        const btns = form.querySelectorAll('button');
+                        for (const b of btns) {
+                            if (b.textContent && (b.textContent.includes('Вход') || b.textContent.includes('Log In') || b.type === 'submit')) {
+                                submitBtn = b;
+                                break;
+                            }
+                        }
+                        if (!submitBtn && btns.length > 0) {
+                            submitBtn = btns[btns.length - 1];
+                        }
+                    }
+                }
 
-            if (submitBtn.parentElement) {
-                submitBtn.insertAdjacentElement('afterend', btn);
+                if (submitBtn && submitBtn.parentElement) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.id = 'customcord-token-login-btn';
+                    btn.className = 'customcord-token-login-btn';
+                    btn.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                        </svg>
+                        Войти с помощью токена
+                    `;
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openTokenModal();
+                    });
+                    submitBtn.insertAdjacentElement('afterend', btn);
+                }
+            }
+
+            // 2. Дополнительная ссылка под блоком QR-кода (справа, под "Или войти с помощью ключа доступа")
+            if (!document.getElementById('customcord-token-qr-link')) {
+                const passkeyEl = Array.from(document.querySelectorAll('button, div, a')).find(el => 
+                    el.textContent && (el.textContent.includes('ключа доступа') || el.textContent.includes('passkey'))
+                );
+                if (passkeyEl && passkeyEl.parentElement) {
+                    const link = document.createElement('div');
+                    link.id = 'customcord-token-qr-link';
+                    link.style.cssText = 'margin-top: 8px; font-size: 14px; color: #00a8fc; cursor: pointer; text-align: center; transition: text-decoration 0.15s;';
+                    link.textContent = 'Или войти с помощью токена';
+                    link.onmouseenter = () => { link.style.textDecoration = 'underline'; };
+                    link.onmouseleave = () => { link.style.textDecoration = 'none'; };
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openTokenModal();
+                    });
+                    passkeyEl.parentElement.appendChild(link);
+                }
             }
         }
     }
