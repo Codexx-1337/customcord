@@ -577,8 +577,17 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 box-sizing: border-box !important;
             }
 
-            * {
-                -webkit-user-drag: none;
+            /* Разрешаем полноценный drag-and-drop для серверов, папок и каналов Discord */
+            [draggable="true"],
+            [draggable="true"] * {
+                -webkit-user-drag: element !important;
+                user-drag: element !important;
+            }
+            nav[class*="guilds"],
+            [data-list-id="guildsnav"],
+            [class*="listItem"],
+            [class*="blobContainer"] {
+                -webkit-user-drag: auto !important;
             }
 
             ::-webkit-scrollbar {
@@ -756,7 +765,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
         const target = e.target;
-        if (target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn')) {
+        if (e.clientX <= 72 || target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn, nav, [data-list-id="guildsnav"], [class*="guilds"], [draggable="true"], [class*="listItem"], [class*="blobContainer"]')) {
             return;
         }
         if (e.clientY <= 32) {
@@ -767,7 +776,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     document.addEventListener('dblclick', (e) => {
         if (e.button !== 0) return;
         const target = e.target;
-        if (target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn')) {
+        if (e.clientX <= 72 || target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn, nav, [data-list-id="guildsnav"], [class*="guilds"], [draggable="true"], [class*="listItem"], [class*="blobContainer"]')) {
             return;
         }
         if (e.clientY <= 32) {
