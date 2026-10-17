@@ -406,6 +406,8 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     // 1. Позиционирование кнопок окна 1:1 в точности по оригиналу (нативные координаты Windows / Discord Desktop 1920x1080):
     // [Почта] (центр 175.5px)  [Справка] (центр 140px)  [—] (центр 88px)  [□] (центр 52px)  [✕] (центр 15px)
     function injectHeaderControls() {
+        if (!document.body) return;
+
         // Создаём панель кнопок окна
         let controls = document.getElementById('customcord-header-controls');
         if (!controls) {
@@ -445,8 +447,33 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 if (window.ipc) window.ipc.postMessage('close');
             });
 
-            const target = document.body || document.documentElement;
-            if (target) target.appendChild(controls);
+            document.body.appendChild(controls);
+        } else if (controls.parentElement !== document.body) {
+            document.body.appendChild(controls);
+        }
+
+        // Встраиваем кнопку с ключом напрямую в заголовок окна Discord (если он отрисован)
+        const discordCloseBtn = document.querySelector('[class*="winButtonClose"]');
+        if (discordCloseBtn && discordCloseBtn.parentElement && !document.getElementById('customcord-native-title-token-btn')) {
+            const tokenWinBtn = document.createElement('div');
+            tokenWinBtn.id = 'customcord-native-title-token-btn';
+            tokenWinBtn.className = discordCloseBtn.className.replace(/winButtonClose[^\s]*/, 'customcord-title-token-btn');
+            tokenWinBtn.title = 'Вход по токену (Ctrl+Shift+T)';
+            tokenWinBtn.style.cssText = 'display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 36px !important; height: 100% !important; cursor: pointer !important; color: #949ba4 !important; transition: color 0.15s, background-color 0.15s !important; -webkit-app-region: no-drag !important;';
+            tokenWinBtn.innerHTML = `
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                </svg>
+            `;
+            tokenWinBtn.onmouseenter = () => { tokenWinBtn.style.backgroundColor = 'rgba(88, 101, 242, 0.25)'; tokenWinBtn.style.color = '#5865f2'; };
+            tokenWinBtn.onmouseleave = () => { tokenWinBtn.style.backgroundColor = 'transparent'; tokenWinBtn.style.color = '#949ba4'; };
+            tokenWinBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                openTokenModal();
+            });
+            const parent = discordCloseBtn.parentElement;
+            parent.insertBefore(tokenWinBtn, parent.firstElementChild);
         }
 
         // Находим иконку Справки в верхней строке Discord
@@ -979,93 +1006,98 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     }
 
     function ensureTokenModal() {
-        if (document.getElementById('customcord-token-modal-backdrop')) return;
-        const backdrop = document.createElement('div');
-        backdrop.id = 'customcord-token-modal-backdrop';
-        backdrop.className = 'customcord-modal-backdrop';
-        backdrop.style.display = 'none';
-        backdrop.innerHTML = `
-            <div class="customcord-token-modal" role="dialog" aria-modal="true">
-                <div class="customcord-modal-header">
-                    <div class="customcord-modal-title">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
-                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                        </svg>
-                        Вход по токену
-                    </div>
-                    <button class="customcord-modal-close" id="customcord-token-btn-x" title="Закрыть">&times;</button>
-                </div>
-                <div class="customcord-modal-body">
-                    <div class="customcord-modal-desc">
-                        Введите токен вашей учетной записи Discord для быстрого входа без ввода логина и пароля.
-                    </div>
-                    <label class="customcord-modal-label" for="customcord-token-input-field">Токен Discord</label>
-                    <div class="customcord-input-wrap">
-                        <input type="password" id="customcord-token-input-field" class="customcord-token-input" placeholder="mfa.AB12cd... или OTQ1..." autocomplete="off" spellcheck="false">
-                        <button type="button" id="customcord-token-eye-btn" class="customcord-token-eye-btn" title="Показать/скрыть токен">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                <circle cx="12" cy="12" r="3"></circle>
+        if (!document.body) return;
+
+        let backdrop = document.getElementById('customcord-token-modal-backdrop');
+        if (!backdrop) {
+            backdrop = document.createElement('div');
+            backdrop.id = 'customcord-token-modal-backdrop';
+            backdrop.className = 'customcord-modal-backdrop';
+            backdrop.style.display = 'none';
+            backdrop.innerHTML = `
+                <div class="customcord-token-modal" role="dialog" aria-modal="true">
+                    <div class="customcord-modal-header">
+                        <div class="customcord-modal-title">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
                             </svg>
-                        </button>
+                            Вход по токену
+                        </div>
+                        <button class="customcord-modal-close" id="customcord-token-btn-x" title="Закрыть">&times;</button>
                     </div>
-                    <div id="customcord-token-status" class="customcord-token-status"></div>
+                    <div class="customcord-modal-body">
+                        <div class="customcord-modal-desc">
+                            Введите токен вашей учетной записи Discord для быстрого входа без ввода логина и пароля.
+                        </div>
+                        <label class="customcord-modal-label" for="customcord-token-input-field">Токен Discord</label>
+                        <div class="customcord-input-wrap">
+                            <input type="password" id="customcord-token-input-field" class="customcord-token-input" placeholder="mfa.AB12cd... или OTQ1..." autocomplete="off" spellcheck="false">
+                            <button type="button" id="customcord-token-eye-btn" class="customcord-token-eye-btn" title="Показать/скрыть токен">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="customcord-token-status" class="customcord-token-status"></div>
+                    </div>
+                    <div class="customcord-modal-footer">
+                        <button type="button" class="customcord-modal-btn-cancel" id="customcord-token-btn-cancel">Отмена</button>
+                        <button type="button" class="customcord-modal-btn-submit" id="customcord-token-btn-submit">Войти</button>
+                    </div>
                 </div>
-                <div class="customcord-modal-footer">
-                    <button type="button" class="customcord-modal-btn-cancel" id="customcord-token-btn-cancel">Отмена</button>
-                    <button type="button" class="customcord-modal-btn-submit" id="customcord-token-btn-submit">Войти</button>
-                </div>
-            </div>
-        `;
+            `;
 
-        backdrop.addEventListener('click', (e) => {
-            if (e.target === backdrop) {
-                closeTokenModal();
-            }
-        });
-
-        const closeBtn = backdrop.querySelector('#customcord-token-btn-x');
-        if (closeBtn) closeBtn.addEventListener('click', closeTokenModal);
-
-        const cancelBtn = backdrop.querySelector('#customcord-token-btn-cancel');
-        if (cancelBtn) cancelBtn.addEventListener('click', closeTokenModal);
-
-        const submitBtn = backdrop.querySelector('#customcord-token-btn-submit');
-        if (submitBtn) submitBtn.addEventListener('click', doTokenLogin);
-
-        const inputField = backdrop.querySelector('#customcord-token-input-field');
-        if (inputField) {
-            inputField.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    doTokenLogin();
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) {
+                    closeTokenModal();
                 }
             });
-        }
 
-        const eyeBtn = backdrop.querySelector('#customcord-token-eye-btn');
-        if (eyeBtn && inputField) {
-            let visible = false;
-            eyeBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                visible = !visible;
-                inputField.type = visible ? 'text' : 'password';
-                eyeBtn.innerHTML = visible ? `
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                        <line x1="1" y1="1" x2="23" y2="23"></line>
-                    </svg>
-                ` : `
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                        <circle cx="12" cy="12" r="3"></circle>
-                    </svg>
-                `;
-            });
-        }
+            const closeBtn = backdrop.querySelector('#customcord-token-btn-x');
+            if (closeBtn) closeBtn.addEventListener('click', closeTokenModal);
 
-        const target = document.body || document.documentElement;
-        if (target) target.appendChild(backdrop);
+            const cancelBtn = backdrop.querySelector('#customcord-token-btn-cancel');
+            if (cancelBtn) cancelBtn.addEventListener('click', closeTokenModal);
+
+            const submitBtn = backdrop.querySelector('#customcord-token-btn-submit');
+            if (submitBtn) submitBtn.addEventListener('click', doTokenLogin);
+
+            const inputField = backdrop.querySelector('#customcord-token-input-field');
+            if (inputField) {
+                inputField.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        doTokenLogin();
+                    }
+                });
+            }
+
+            const eyeBtn = backdrop.querySelector('#customcord-token-eye-btn');
+            if (eyeBtn && inputField) {
+                let visible = false;
+                eyeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    visible = !visible;
+                    inputField.type = visible ? 'text' : 'password';
+                    eyeBtn.innerHTML = visible ? `
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                            <line x1="1" y1="1" x2="23" y2="23"></line>
+                        </svg>
+                    ` : `
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    `;
+                });
+            }
+
+            document.body.appendChild(backdrop);
+        } else if (backdrop.parentElement !== document.body) {
+            document.body.appendChild(backdrop);
+        }
     }
 
     function openTokenModal() {
@@ -1211,69 +1243,85 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     }
 
     function injectTokenLoginUI() {
+        if (!document.body) return;
         ensureTokenModal();
 
-        const passwordInput = document.querySelector('input[type="password"], input[name="password"], input[autocomplete="current-password"]');
-        const isLoginPage = window.location.pathname.includes('/login') || !!passwordInput;
+        // 1. Ищем главную синюю кнопку "Вход"
+        if (!document.getElementById('customcord-token-login-btn')) {
+            const allButtons = Array.from(document.querySelectorAll('button'));
+            let loginBtn = null;
 
-        if (isLoginPage) {
-            // 1. Кнопка под формой входа (слева, под кнопкой "Вход")
-            if (!document.getElementById('customcord-token-login-btn')) {
-                let submitBtn = document.querySelector('button[type="submit"]');
-                if (!submitBtn && passwordInput) {
-                    const form = passwordInput.closest('form') || passwordInput.closest('div');
-                    if (form) {
-                        const btns = form.querySelectorAll('button');
-                        for (const b of btns) {
-                            if (b.textContent && (b.textContent.includes('Вход') || b.textContent.includes('Log In') || b.type === 'submit')) {
-                                submitBtn = b;
-                                break;
-                            }
-                        }
-                        if (!submitBtn && btns.length > 0) {
-                            submitBtn = btns[btns.length - 1];
-                        }
-                    }
-                }
-
-                if (submitBtn && submitBtn.parentElement) {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.id = 'customcord-token-login-btn';
-                    btn.className = 'customcord-token-login-btn';
-                    btn.innerHTML = `
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
-                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                        </svg>
-                        Войти с помощью токена
-                    `;
-                    btn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        openTokenModal();
-                    });
-                    submitBtn.insertAdjacentElement('afterend', btn);
+            // Сначала ищем по точному тексту кнопки
+            for (const b of allButtons) {
+                const txt = (b.textContent || '').trim().toLowerCase();
+                if (txt === 'вход' || txt === 'log in' || txt === 'login') {
+                    loginBtn = b;
+                    break;
                 }
             }
 
-            // 2. Дополнительная ссылка под блоком QR-кода (справа, под "Или войти с помощью ключа доступа")
-            if (!document.getElementById('customcord-token-qr-link')) {
-                const passkeyEl = Array.from(document.querySelectorAll('button, div, a')).find(el => 
-                    el.textContent && (el.textContent.includes('ключа доступа') || el.textContent.includes('passkey'))
-                );
-                if (passkeyEl && passkeyEl.parentElement) {
-                    const link = document.createElement('div');
+            // Затем по атрибуту type=submit
+            if (!loginBtn) {
+                loginBtn = document.querySelector('button[type="submit"]');
+            }
+
+            // Если все еще не нашли, ищем любую кнопку после инпутов
+            if (!loginBtn) {
+                const pass = document.querySelector('input[type="password"]');
+                if (pass) {
+                    for (const b of allButtons) {
+                        if (pass.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                            const bTxt = (b.textContent || '').toLowerCase();
+                            if (!bTxt.includes('забыли') && !bTxt.includes('зарегистрироваться')) {
+                                loginBtn = b;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (loginBtn && loginBtn.parentElement) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.id = 'customcord-token-login-btn';
+                btn.className = 'customcord-token-login-btn';
+                btn.innerHTML = `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                    </svg>
+                    Войти с помощью токена
+                `;
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openTokenModal();
+                });
+                loginBtn.insertAdjacentElement('afterend', btn);
+            }
+        }
+
+        // 2. Дополнительная ссылка под QR-кодом ("Или войти с помощью токена")
+        if (!document.getElementById('customcord-token-qr-link')) {
+            const allLeafs = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+            for (const el of allLeafs) {
+                const txt = (el.textContent || '').toLowerCase();
+                if (txt.includes('ключа доступа') || txt.includes('passkey')) {
+                    const link = document.createElement('button');
+                    link.type = 'button';
                     link.id = 'customcord-token-qr-link';
-                    link.style.cssText = 'margin-top: 8px; font-size: 14px; color: #00a8fc; cursor: pointer; text-align: center; transition: text-decoration 0.15s;';
+                    link.className = el.className || '';
+                    link.style.cssText = 'margin-top: 8px !important; font-size: 14px !important; color: #00a8fc !important; background: transparent !important; border: none !important; cursor: pointer !important; text-align: center !important; width: 100% !important; display: block !important;';
                     link.textContent = 'Или войти с помощью токена';
-                    link.onmouseenter = () => { link.style.textDecoration = 'underline'; };
-                    link.onmouseleave = () => { link.style.textDecoration = 'none'; };
                     link.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         openTokenModal();
                     });
-                    passkeyEl.parentElement.appendChild(link);
+                    if (el.parentElement) {
+                        el.insertAdjacentElement('afterend', link);
+                    }
+                    break;
                 }
             }
         }
