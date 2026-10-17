@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -784,132 +784,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         }
     });
 
-    // 4. Микрофон: чистый поток 1:1 как в Discord Desktop без задержек и без серверного мута
-    let currentVoiceTracks = [];
-    let isPttActive = false;
-    let currentPttMode = 'VOICE_ACTIVITY';
-    let currentShortcutCode = 20; // По умолчанию CapsLock
-    let pttReleaseTimeout = null;
-    const activePeerConnections = new Set();
-    window.__customcord_creating_loopback = false;
-
-    function updateVoiceTracks(active) {
-        currentVoiceTracks = currentVoiceTracks.filter(t => t && t.readyState === 'live');
-        for (const t of currentVoiceTracks) {
-            if (t.__isLoopback) {
-                t.enabled = true;
-                continue;
-            }
-            try {
-                t.enabled = active;
-            } catch(e) {}
-        }
-        for (const pc of activePeerConnections) {
-            if (pc.__isLoopback) continue;
-            try {
-                const senders = pc.getSenders ? pc.getSenders() : [];
-                for (const s of senders) {
-                    if (s && s.track && s.track.kind === 'audio') {
-                        if (s.track.__isLoopback) {
-                            s.track.enabled = true;
-                            continue;
-                        }
-                        s.track.enabled = active;
-                        if (!currentVoiceTracks.includes(s.track)) {
-                            currentVoiceTracks.push(s.track);
-                        }
-                    }
-                }
-            } catch(e) {}
-        }
-    }
-
-    function registerVoiceTrack(track) {
-        if (!track || track.kind !== 'audio') return;
-        if (track.__isLoopback) {
-            track.enabled = true;
-            return;
-        }
-        if (!currentVoiceTracks.includes(track)) {
-            currentVoiceTracks.push(track);
-        }
-        if (currentPttMode === 'PUSH_TO_TALK') {
-            track.enabled = isPttActive;
-        } else {
-            track.enabled = true;
-        }
-        track.addEventListener('ended', () => {
-            currentVoiceTracks = currentVoiceTracks.filter(x => x !== track);
-        });
-    }
-
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-        navigator.mediaDevices.getUserMedia = async function(constraints) {
-            const stream = await origGetUserMedia(constraints);
-            try {
-                if (stream && typeof stream.getAudioTracks === 'function') {
-                    const tracks = stream.getAudioTracks();
-                    for (const t of tracks) {
-                        if (window.__customcord_creating_loopback) {
-                            t.__isLoopback = true;
-                            t.enabled = true;
-                        } else {
-                            registerVoiceTrack(t);
-                        }
-                    }
-                }
-            } catch(e) {}
-            return stream;
-        };
-    }
-
-    if (window.MediaStream && MediaStream.prototype.addTrack) {
-        const origMediaStreamAddTrack = MediaStream.prototype.addTrack;
-        MediaStream.prototype.addTrack = function(track) {
-            if (window.__customcord_creating_loopback || (track && track.__isLoopback)) {
-                if (track) {
-                    track.__isLoopback = true;
-                    track.enabled = true;
-                }
-            } else {
-                registerVoiceTrack(track);
-            }
-            return origMediaStreamAddTrack.apply(this, arguments);
-        };
-    }
-
-    // Устранение искусственной задержки WebAudio createDelay для проверки микрофона
-    if (window.AudioContext && AudioContext.prototype.createDelay) {
-        const origCreateDelay = AudioContext.prototype.createDelay;
-        AudioContext.prototype.createDelay = function(maxDelayTime) {
-            const node = origCreateDelay.apply(this, arguments);
-            try {
-                if (window.__customcord_creating_loopback || maxDelayTime === 0.2) {
-                    if (node && node.delayTime) {
-                        node.delayTime.value = 0;
-                    }
-                }
-            } catch(e) {}
-            return node;
-        };
-    }
-    if (window.webkitAudioContext && webkitAudioContext.prototype.createDelay) {
-        const origWebkitCreateDelay = webkitAudioContext.prototype.createDelay;
-        webkitAudioContext.prototype.createDelay = function(maxDelayTime) {
-            const node = origWebkitCreateDelay.apply(this, arguments);
-            try {
-                if (window.__customcord_creating_loopback || maxDelayTime === 0.2) {
-                    if (node && node.delayTime) {
-                        node.delayTime.value = 0;
-                    }
-                }
-            } catch(e) {}
-            return node;
-        };
-    }
-
-    // 5. Форсирование 60 FPS для видеопотока экрана
+    // 4. Форсирование 60 FPS для видеопотока экрана
     if (window.MediaStreamTrack) {
         if (MediaStreamTrack.prototype.getSettings) {
             const origGetSettings = MediaStreamTrack.prototype.getSettings;
@@ -938,7 +813,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         }
     }
 
-    // 6. Снятие лимита битрейта WebRTC видеопотока экрана до 8.5 Мбит/с
+    // 5. Снятие лимита битрейта WebRTC видеопотока экрана до 8.5 Мбит/с
     if (window.RTCRtpSender && RTCRtpSender.prototype.setParameters) {
         const origSetParameters = RTCRtpSender.prototype.setParameters;
         RTCRtpSender.prototype.setParameters = async function(params) {
@@ -954,69 +829,26 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         };
     }
 
-    if (window.RTCPeerConnection) {
-        const origPC = window.RTCPeerConnection;
-        window.RTCPeerConnection = function(...args) {
-            const pc = new origPC(...args);
-            if (window.__customcord_creating_loopback) {
-                pc.__isLoopback = true;
-            } else {
-                activePeerConnections.add(pc);
-                pc.addEventListener('connectionstatechange', () => {
-                    if (pc.connectionState === 'closed') {
-                        activePeerConnections.delete(pc);
-                    }
-                });
+    if (window.RTCPeerConnection && RTCPeerConnection.prototype.setLocalDescription) {
+        const origSetLocalDescription = RTCPeerConnection.prototype.setLocalDescription;
+        RTCPeerConnection.prototype.setLocalDescription = function(desc) {
+            if (desc && desc.sdp) {
+                desc.sdp = desc.sdp.replace(/a=framerate:[0-9.]+/g, 'a=framerate:60');
+                desc.sdp = desc.sdp.replace(/(m=video [^\r\n]+[\r\n]+)/g, '$1b=AS:8500\r\nb=TIAS:8500000\r\n');
             }
-            return pc;
-        };
-        window.RTCPeerConnection.prototype = origPC.prototype;
-
-        if (origPC.prototype.addTrack) {
-            const origAddTrack = origPC.prototype.addTrack;
-            origPC.prototype.addTrack = function(track, ...streams) {
-                if (this.__isLoopback || (track && track.__isLoopback) || window.__customcord_creating_loopback) {
-                    if (track) {
-                        track.__isLoopback = true;
-                        track.enabled = true;
-                    }
-                } else {
-                    registerVoiceTrack(track);
-                }
-                return origAddTrack.apply(this, [track, ...streams]);
-            };
-        }
-
-        if (origPC.prototype.setLocalDescription) {
-            const origSetLocalDescription = origPC.prototype.setLocalDescription;
-            origPC.prototype.setLocalDescription = function(desc) {
-                if (desc && desc.sdp) {
-                    desc.sdp = desc.sdp.replace(/a=framerate:[0-9.]+/g, 'a=framerate:60');
-                    desc.sdp = desc.sdp.replace(/(m=video [^\r\n]+[\r\n]+)/g, '$1b=AS:8500\r\nb=TIAS:8500000\r\n');
-                }
-                return origSetLocalDescription.apply(this, arguments);
-            };
-        }
-    }
-
-    if (window.RTCRtpSender && RTCRtpSender.prototype.replaceTrack) {
-        const origReplaceTrack = RTCRtpSender.prototype.replaceTrack;
-        RTCRtpSender.prototype.replaceTrack = function(track) {
-            if (track && (track.__isLoopback || window.__customcord_creating_loopback)) {
-                track.__isLoopback = true;
-                track.enabled = true;
-            } else {
-                registerVoiceTrack(track);
-            }
-            return origReplaceTrack.apply(this, arguments);
+            return origSetLocalDescription.apply(this, arguments);
         };
     }
 
-    // 7. Оригинальный режим рации Discord (Push-to-Talk)
+    // 6. Чистый нативный микрофон WebRTC (1:1 как в Discord Desktop) и Push-to-Talk
     let cachedMediaEngineStore = null;
     let cachedMediaEngineActions = null;
     let cachedSoundUtils = null;
+    let isPttActive = false;
+    let currentPttMode = 'VOICE_ACTIVITY';
+    let currentShortcutCode = 20; // По умолчанию CapsLock
     let shortcutInitialized = false;
+    let pttReleaseTimeout = null;
 
     function getMediaEngineStore() {
         if (cachedMediaEngineStore) return cachedMediaEngineStore;
@@ -1025,22 +857,6 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             try {
                 const s = window.Vencord.Webpack.findStore("MediaEngineStore");
                 if (s) return (cachedMediaEngineStore = s);
-            } catch(e) {}
-        }
-        if (window.webpackChunkdiscord_app) {
-            try {
-                window.webpackChunkdiscord_app.push([[Symbol()], {}, (req) => {
-                    for (const id in req.c) {
-                        const m = req.c[id];
-                        if (m && m.exports) {
-                            const exp = m.exports.default || m.exports;
-                            if (exp && typeof exp.getMode === 'function' && typeof exp.getModeOptions === 'function') {
-                                cachedMediaEngineStore = exp;
-                                break;
-                            }
-                        }
-                    }
-                }]);
             } catch(e) {}
         }
         return cachedMediaEngineStore;
@@ -1054,22 +870,6 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 if (a) return (cachedMediaEngineActions = a);
             } catch(e) {}
         }
-        if (window.webpackChunkdiscord_app) {
-            try {
-                window.webpackChunkdiscord_app.push([[Symbol()], {}, (req) => {
-                    for (const id in req.c) {
-                        const m = req.c[id];
-                        if (m && m.exports) {
-                            const exp = m.exports.default || m.exports;
-                            if (exp && typeof exp.setTemporarySelfMute === 'function') {
-                                cachedMediaEngineActions = exp;
-                                break;
-                            }
-                        }
-                    }
-                }]);
-            } catch(e) {}
-        }
         return cachedMediaEngineActions;
     }
 
@@ -1081,246 +881,32 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 if (s) return (cachedSoundUtils = s);
             } catch(e) {}
         }
-        if (window.webpackChunkdiscord_app) {
-            try {
-                window.webpackChunkdiscord_app.push([[Symbol()], {}, (req) => {
-                    for (const id in req.c) {
-                        const m = req.c[id];
-                        if (m && m.exports) {
-                            const exp = m.exports.default || m.exports;
-                            if (exp && typeof exp.playSound === 'function') {
-                                cachedSoundUtils = exp;
-                                break;
-                            }
-                        }
-                    }
-                }]);
-            } catch(e) {}
-        }
         return cachedSoundUtils;
     }
 
-    let cachedFeatures = null;
-    function getMediaEngineFeatures() {
-        if (cachedFeatures) return cachedFeatures;
-        if (window.Vencord && window.Vencord.Webpack) {
-            try {
-                const f = window.Vencord.Webpack.findByProps("AUTOMATIC_VAD");
-                if (f) return (cachedFeatures = f);
-            } catch(e) {}
-        }
-        if (window.webpackChunkdiscord_app) {
-            try {
-                window.webpackChunkdiscord_app.push([[Symbol()], {}, (req) => {
-                    for (const id in req.c) {
-                        const m = req.c[id];
-                        if (m && m.exports) {
-                            const exp = m.exports.default || m.exports;
-                            if (exp && exp.AUTOMATIC_VAD !== undefined) {
-                                cachedFeatures = exp;
-                                break;
-                            }
-                        }
-                    }
-                }]);
-            } catch(e) {}
-        }
-        return cachedFeatures;
-    }
-
-    function hookSupportsOnObject(obj) {
-        if (!obj || obj.__customcord_supports_hooked) return;
-        const origSupports = obj.supports;
-        if (typeof origSupports !== 'function') return;
-
-        obj.__customcord_supports_hooked = true;
-        obj.supports = function(feature) {
-            const feats = getMediaEngineFeatures();
-            if (feats) {
-                if (feature === feats.AUTOMATIC_VAD || feature === feats.VOICE_PROCESSING) {
-                    return true;
-                }
-            }
-            if (feature === 'AUTOMATIC_VAD' || feature === 'VOICE_PROCESSING') {
-                return true;
-            }
-            return origSupports.apply(this, arguments);
-        };
-    }
-
-    function hookLoopbackOnEngine(engine) {
-        if (!engine || engine.__customcord_loopback_hooked) return;
-        const proto = engine.constructor ? engine.constructor.prototype : engine;
-        const origSetLoopback = engine.setLoopback || (proto ? proto.setLoopback : null);
-        if (typeof origSetLoopback !== 'function') return;
-
-        engine.__customcord_loopback_hooked = true;
-        const hookedSetLoopback = function(enabled, options) {
-            window.__customcord_creating_loopback = !!enabled;
-            let res;
-            try {
-                res = origSetLoopback.apply(this, arguments);
-            } finally {
-                window.__customcord_creating_loopback = false;
-            }
-
-            if (enabled && this.loopback && !this.loopback.__customcord_direct) {
-                this.loopback.__customcord_direct = true;
-                const lb = this.loopback;
-
-                // Снимаем искусственную задержку getDelayedStream (0.2s) с прототипа AudioInput
-                if (lb.input && lb.input.constructor && lb.input.constructor.prototype) {
-                    const inProto = lb.input.constructor.prototype;
-                    if (!inProto.__customcord_zero_delay) {
-                        inProto.__customcord_zero_delay = true;
-                        inProto.getDelayedStream = function() {
-                            return this.stream;
-                        };
-                    }
-                }
-
-                // Удаляем стандартный WebRTC-обработчик handleStream, создававший задержку через pc1/pc2
-                if (lb.input && typeof lb.input.removeAllListeners === 'function') {
-                    lb.input.removeAllListeners('stream');
-                }
-
-                // Устанавливаем мгновенный (0 мс) прямой loopback
-                lb.handleStream = function() {
-                    try {
-                        const stream = lb.input ? lb.input.stream : null;
-                        if (stream) {
-                            const tracks = stream.getAudioTracks ? stream.getAudioTracks() : [];
-                            for (const track of tracks) {
-                                track.__isLoopback = true;
-                                track.enabled = true;
-                                currentVoiceTracks = currentVoiceTracks.filter(x => x !== track);
-                            }
-                            if (tracks.length > 0) {
-                                lb.createOutput('customcord-direct-loopback', tracks[0]);
-                            }
-                        }
-                    } catch(err) {
-                        console.error('[CustomCord] Loopback handleStream error:', err);
-                    }
-                };
-
-                if (lb.input) {
-                    lb.input.on('stream', lb.handleStream);
-                    if (lb.input.stream) {
-                        lb.handleStream();
-                    }
-                }
-            }
-            return res;
-        };
-
-        engine.setLoopback = hookedSetLoopback;
-        if (proto && proto.setLoopback) {
-            proto.setLoopback = hookedSetLoopback;
-        }
-    }
-
-    function hookMediaEngine() {
-        const actions = getMediaEngineActions();
-        if (actions && !actions.__customcord_hooked) {
-            actions.__customcord_hooked = true;
-            const origSetTemp = actions.setTemporarySelfMute;
-            actions.__customcord_orig_setTemporarySelfMute = origSetTemp;
-            if (typeof origSetTemp === 'function') {
-                actions.setTemporarySelfMute = function(mute) {
-                    // Блокируем перевод в мут: пользователь НЕ должен видеть красный перечеркнутый микрофон,
-                    // и голосовой шлюз Discord не должен разрывать/пересогласовывать поток с 1-секундной задержкой!
-                    if (mute && currentPttMode === 'PUSH_TO_TALK') {
-                        return;
-                    }
-                    return origSetTemp.apply(this, arguments);
-                };
-            }
-        }
-
-        const store = getMediaEngineStore();
-        if (store) {
-            if (!store.__customcord_hooked) {
-                store.__customcord_hooked = true;
-                if (typeof store.isTemporarySelfMute === 'function') {
-                    const origIsTemp = store.isTemporarySelfMute;
-                    store.isTemporarySelfMute = function() {
-                        if (currentPttMode === 'PUSH_TO_TALK') {
-                            return false;
-                        }
-                        return origIsTemp.apply(this, arguments);
-                    };
-                }
-            }
-
-            hookSupportsOnObject(store);
-
-            if (typeof store.getMediaEngine === 'function') {
-                try {
-                    const engine = store.getMediaEngine();
-                    if (engine) {
-                        hookSupportsOnObject(engine);
-                        if (engine.constructor && engine.constructor.prototype) {
-                            hookSupportsOnObject(engine.constructor.prototype);
-                        }
-                        hookLoopbackOnEngine(engine);
-                    }
-                } catch(e) {}
-            }
-        }
-
-        if (window.Vencord && window.Vencord.Webpack) {
-            try {
-                const modules = window.Vencord.Webpack.findAllByProps("supports");
-                for (const m of modules) {
-                    hookSupportsOnObject(m);
-                }
-                const loopbackModules = window.Vencord.Webpack.findAllByProps("setLoopback");
-                for (const m of loopbackModules) {
-                    hookLoopbackOnEngine(m);
-                }
-            } catch(e) {}
-        }
-    }
-
+    // Управление микрофоном через официальный метод Discord MediaEngine
     window.__customcord_ptt = function(active) {
-        if (currentPttMode !== 'PUSH_TO_TALK') {
-            updateVoiceTracks(true);
-            return;
-        }
+        if (currentPttMode !== 'PUSH_TO_TALK') return;
+
+        const actions = getMediaEngineActions();
+        const soundUtils = getSoundUtils();
 
         if (active) {
-            // При нажатии клавиши PTT:
             if (pttReleaseTimeout) {
                 clearTimeout(pttReleaseTimeout);
                 pttReleaseTimeout = null;
             }
-
             if (!isPttActive) {
                 isPttActive = true;
-
-                // 1. МГНОВЕННО (0 мс задержки) включаем аудиопоток микрофона
-                updateVoiceTracks(true);
-
-                if (window.ipc) {
-                    window.ipc.postMessage('ptt_active:down');
+                if (actions && typeof actions.setTemporarySelfMute === 'function') {
+                    actions.setTemporarySelfMute(false);
                 }
-
-                // 2. Аутентичный звук Discord ptt_start
-                try {
-                    const soundUtils = getSoundUtils();
-                    if (soundUtils && typeof soundUtils.playSound === 'function') {
-                        soundUtils.playSound('ptt_start');
-                    }
-                } catch(e) {}
+                if (soundUtils && typeof soundUtils.playSound === 'function') {
+                    try { soundUtils.playSound('ptt_start'); } catch(e) {}
+                }
             }
         } else {
-            // При отпускании клавиши PTT:
-            if (pttReleaseTimeout) {
-                clearTimeout(pttReleaseTimeout);
-            }
-
-            let releaseDelay = 40;
+            let releaseDelay = 20;
             try {
                 const store = getMediaEngineStore();
                 if (store && store.getModeOptions) {
@@ -1331,115 +917,56 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 }
             } catch(e) {}
 
+            if (pttReleaseTimeout) clearTimeout(pttReleaseTimeout);
             pttReleaseTimeout = setTimeout(() => {
-                if (!isPttActive) return;
                 isPttActive = false;
-
-                // Выключаем аудиопоток микрофона (WebRTC отправляет тишину, в UI пользователь не в муте)
                 if (currentPttMode === 'PUSH_TO_TALK') {
-                    updateVoiceTracks(false);
-                }
-
-                if (window.ipc) {
-                    window.ipc.postMessage('ptt_active:up');
-                }
-
-                // Аутентичный звук Discord ptt_stop
-                try {
-                    const soundUtils = getSoundUtils();
-                    if (soundUtils && typeof soundUtils.playSound === 'function') {
-                        soundUtils.playSound('ptt_stop');
+                    if (actions && typeof actions.setTemporarySelfMute === 'function') {
+                        actions.setTemporarySelfMute(true);
                     }
-                } catch(e) {}
+                }
+                if (soundUtils && typeof soundUtils.playSound === 'function') {
+                    try { soundUtils.playSound('ptt_stop'); } catch(e) {}
+                }
             }, releaseDelay);
         }
     };
 
-    function syncVoiceSettings() {
+    // Легковесная синхронизация режима (Voice Activity vs PTT) и бинда
+    function checkVoiceSettings() {
         try {
-            hookMediaEngine();
-
             const store = getMediaEngineStore();
-            if (store) {
-                if (!window.__customcord_vad_logged) {
-                    const feats = getMediaEngineFeatures();
-                    if (feats) {
-                        window.__customcord_vad_logged = true;
-                        if (window.ipc) {
-                            window.ipc.postMessage('log: VAD_FEATURE_DETECTED: ' + JSON.stringify(feats.AUTOMATIC_VAD) + ' supports=' + (store.supports ? store.supports(feats.AUTOMATIC_VAD) : 'none'));
-                        }
-                    }
-                }
+            if (!store) return;
 
-                const mode = store.getMode ? store.getMode() : 'VOICE_ACTIVITY';
-                const opts = store.getModeOptions ? store.getModeOptions() : {};
-
-                if (mode !== currentPttMode) {
-                    currentPttMode = mode;
-                    if (mode === 'PUSH_TO_TALK') {
-                        updateVoiceTracks(isPttActive);
+            const mode = store.getMode ? store.getMode() : 'VOICE_ACTIVITY';
+            if (mode !== currentPttMode) {
+                currentPttMode = mode;
+                const actions = getMediaEngineActions();
+                if (actions && typeof actions.setTemporarySelfMute === 'function') {
+                    if (currentPttMode === 'PUSH_TO_TALK') {
+                        actions.setTemporarySelfMute(!isPttActive);
                     } else {
-                        updateVoiceTracks(true);
-                    }
-                }
-
-                // Снимаем temporarySelfMute, если Discord успел его выставить
-                if (typeof store.isTemporarySelfMute === 'function' && store.isTemporarySelfMute()) {
-                    const actions = getMediaEngineActions();
-                    if (actions) {
-                        const orig = actions.__customcord_orig_setTemporarySelfMute || actions.setTemporarySelfMute;
-                        if (typeof orig === 'function') {
-                            orig.call(actions, false);
-                        }
-                    }
-                }
-
-                // В режиме рации синхронизируем состояние треков
-                if (currentPttMode === 'PUSH_TO_TALK' && !isPttActive) {
-                    updateVoiceTracks(false);
-                }
-
-                if (opts && opts.shortcut && opts.shortcut.length > 0) {
-                    const item = opts.shortcut[0];
-                    const devType = item[0] || 0;
-                    const code = item[1] || 20;
-                    if (!shortcutInitialized || code !== currentShortcutCode) {
-                        shortcutInitialized = true;
-                        currentShortcutCode = code;
-                        if (window.ipc) {
-                            window.ipc.postMessage('ptt_key:' + devType + ':' + code);
-                        }
+                        actions.setTemporarySelfMute(false);
                     }
                 }
             }
 
-            // Проверяем KeybindStore на наличие шортката рации
-            if (window.Vencord && window.Vencord.Webpack) {
-                try {
-                    const keybindStore = window.Vencord.Webpack.findStore("KeybindStore");
-                    if (keybindStore && keybindStore.getKeybinds) {
-                        const binds = keybindStore.getKeybinds();
-                        for (const id in binds) {
-                            const b = binds[id];
-                            if (b && b.action === 'PUSH_TO_TALK' && b.shortcut && b.shortcut.length > 0) {
-                                const item = b.shortcut[0];
-                                const devType = item[0] || 0;
-                                const code = item[1] || 20;
-                                if (code !== currentShortcutCode) {
-                                    currentShortcutCode = code;
-                                    if (window.ipc) {
-                                        window.ipc.postMessage('ptt_key:' + devType + ':' + code);
-                                    }
-                                }
-                            }
-                        }
+            const opts = store.getModeOptions ? store.getModeOptions() : {};
+            if (opts && opts.shortcut && opts.shortcut.length > 0) {
+                const item = opts.shortcut[0];
+                const devType = item[0] || 0;
+                const code = item[1] || 20;
+                if (!shortcutInitialized || code !== currentShortcutCode) {
+                    shortcutInitialized = true;
+                    currentShortcutCode = code;
+                    if (window.ipc) {
+                        window.ipc.postMessage('ptt_key:' + devType + ':' + code);
                     }
-                } catch(e) {}
+                }
             }
         } catch(e) {}
     }
-
-    setInterval(syncVoiceSettings, 300);
+    setInterval(checkVoiceSettings, 1000);
 
     // 8. Подавление браузерных шорткатов (F5, Ctrl+R, Ctrl+P, Ctrl+U) и поддержка Ctrl +/-/0 для зума
     window.addEventListener('keydown', (e) => {
@@ -1618,28 +1145,11 @@ fn start_background_optimizer(running: Arc<AtomicBool>) {
             }
         }
 
-        let mut last_trim = Instant::now();
-        let startup_time = Instant::now();
-        let mut startup_trimmed = false;
-
         while running.load(Ordering::Relaxed) {
             unsafe {
                 EnumWindows(enum_window_callback, 0);
             }
-
-            // Первичный сброс памяти через 25 сек после полной загрузки страницы Discord
-            if !startup_trimmed && startup_time.elapsed() >= Duration::from_secs(25) {
-                startup_trimmed = true;
-                trim_all_memory();
-            }
-
-            // Фоновый сброс памяти раз в 5 минут (вместо каждых 60 сек, что исключает микрофризы во время звонка)
-            if last_trim.elapsed() >= Duration::from_secs(300) {
-                trim_all_memory();
-                last_trim = Instant::now();
-            }
-
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(1000));
         }
     });
 }
