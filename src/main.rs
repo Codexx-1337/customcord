@@ -90,6 +90,7 @@ try {
 const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
 (function() {
     if (window.top !== window) return;
+    const origLocalStorageSetItem = window.localStorage ? window.localStorage.setItem.bind(window.localStorage) : null;
     try {
         if (window.ipc) window.ipc.postMessage('log: INJECTION SCRIPT STARTED at ' + window.location.href);
     } catch(e) {}
@@ -411,6 +412,11 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             controls = document.createElement('div');
             controls.id = 'customcord-header-controls';
             controls.innerHTML = `
+                <div id="customcord-btn-token" class="customcord-header-win-btn" title="Вход по токену (Ctrl+Shift+T)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                    </svg>
+                </div>
                 <div id="customcord-btn-min" class="customcord-header-win-btn" title="Свернуть">
                     <svg width="11" height="1" viewBox="0 0 11 1"><rect width="11" height="1" fill="currentColor"/></svg>
                 </div>
@@ -422,6 +428,10 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 </div>
             `;
 
+            controls.querySelector('#customcord-btn-token').addEventListener('click', (e) => {
+                e.stopPropagation();
+                openTokenModal();
+            });
             controls.querySelector('#customcord-btn-min').addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (window.ipc) window.ipc.postMessage('minimize');
@@ -442,8 +452,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         // Находим иконку Справки в верхней строке Discord
         const helpBtn = document.querySelector('[aria-label="Справка"], [aria-label="Help"], a[href*="support.discord.com"]');
         if (helpBtn && helpBtn.parentElement) {
-            // Сдвиг иконок Справка/Почта ровно на 164px, чтобы центр Справки стоял на 140px от края (1:1 с оригиналом)
-            helpBtn.parentElement.style.setProperty('padding-right', '164px', 'important');
+            helpBtn.parentElement.style.setProperty('padding-right', '198px', 'important');
         }
     }
 
@@ -468,7 +477,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 position: fixed !important;
                 top: 0 !important;
                 right: 0 !important;
-                width: 106px !important;
+                width: 142px !important;
                 height: 32px !important;
                 z-index: 99999999 !important;
                 user-select: none !important;
@@ -489,7 +498,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 pointer-events: auto !important;
             }
 
-            /* Кнопка Закрыть: зона 0..34px, крестик 10x10 строго на d=10..20, y=10..20 (центр d=15.0, y=15.0) */
+            /* Кнопка Закрыть */
             #customcord-btn-close {
                 right: 0 !important;
                 width: 34px !important;
@@ -502,7 +511,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 height: 10px !important;
             }
 
-            /* Кнопка Развернуть: зона 34..70px, квадрат 10x10 строго на d=47..57, y=10..20 (центр d=52.0, y=15.0) */
+            /* Кнопка Развернуть */
             #customcord-btn-max {
                 right: 34px !important;
                 width: 36px !important;
@@ -515,7 +524,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 height: 10px !important;
             }
 
-            /* Кнопка Свернуть: зона 70..106px, полоска 11x1 строго на d=82.5..93.5, y=15 (центр d=88.0, y=15.0) */
+            /* Кнопка Свернуть */
             #customcord-btn-min {
                 right: 70px !important;
                 width: 36px !important;
@@ -528,9 +537,27 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 height: 1px !important;
             }
 
+            /* Кнопка Вход по токену в заголовке */
+            #customcord-btn-token {
+                right: 106px !important;
+                width: 36px !important;
+            }
+            #customcord-btn-token svg {
+                position: absolute !important;
+                right: 10.5px !important;
+                top: 8.5px !important;
+                width: 15px !important;
+                height: 15px !important;
+            }
+
             .customcord-header-win-btn:hover {
                 background-color: #35373c !important;
                 color: #dbdee1 !important;
+            }
+
+            #customcord-btn-token:hover {
+                background-color: rgba(88, 101, 242, 0.25) !important;
+                color: #5865f2 !important;
             }
 
             .customcord-header-win-btn-close:hover {
@@ -538,12 +565,215 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 color: #ffffff !important;
             }
 
-            /* Отступ блока Справки и Почты на 164px (центр Справки ровно на 140px, Почты на 175.5px) */
+            /* Отступ блока Справки и Почты */
             [class*="trailing_"],
             div:has(> a[href*="support.discord.com"]),
             div:has(> [aria-label="Справка"]),
             div:has(> [aria-label="Help"]) {
-                padding-right: 164px !important;
+                padding-right: 198px !important;
+            }
+
+            /* Кнопка входа по токену на странице логина */
+            .customcord-token-login-btn {
+                width: 100% !important;
+                height: 44px !important;
+                margin-top: 12px !important;
+                margin-bottom: 8px !important;
+                background: rgba(88, 101, 242, 0.15) !important;
+                border: 1px solid rgba(88, 101, 242, 0.45) !important;
+                border-radius: 4px !important;
+                color: #dbdee1 !important;
+                font-size: 14px !important;
+                font-weight: 500 !important;
+                cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: all 0.15s ease !important;
+                font-family: inherit !important;
+                box-sizing: border-box !important;
+            }
+            .customcord-token-login-btn:hover {
+                background: rgba(88, 101, 242, 0.3) !important;
+                border-color: #5865f2 !important;
+                color: #ffffff !important;
+            }
+
+            /* Модальное окно входа по токену */
+            .customcord-modal-backdrop {
+                position: fixed !important;
+                inset: 0 !important;
+                background: rgba(0, 0, 0, 0.75) !important;
+                backdrop-filter: blur(4px) !important;
+                z-index: 999999999 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                animation: customcordFadeIn 0.15s ease-out !important;
+            }
+            @keyframes customcordFadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+
+            .customcord-token-modal {
+                background: #313338 !important;
+                border: 1px solid #3f4147 !important;
+                border-radius: 8px !important;
+                width: 460px !important;
+                max-width: 90vw !important;
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+                font-family: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+                overflow: hidden !important;
+                animation: customcordScaleUp 0.15s ease-out !important;
+            }
+            @keyframes customcordScaleUp {
+                from { transform: scale(0.95); opacity: 0; }
+                to { transform: scale(1); opacity: 1; }
+            }
+
+            .customcord-modal-header {
+                padding: 20px 24px 12px 24px !important;
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: center !important;
+            }
+            .customcord-modal-title {
+                color: #f2f3f5 !important;
+                font-size: 18px !important;
+                font-weight: 700 !important;
+                display: flex !important;
+                align-items: center !important;
+            }
+            .customcord-modal-close {
+                background: transparent !important;
+                border: none !important;
+                color: #949ba4 !important;
+                font-size: 24px !important;
+                line-height: 20px !important;
+                cursor: pointer !important;
+                padding: 4px !important;
+                border-radius: 4px !important;
+                transition: color 0.15s !important;
+            }
+            .customcord-modal-close:hover {
+                color: #dbdee1 !important;
+            }
+
+            .customcord-modal-body {
+                padding: 0 24px 20px 24px !important;
+            }
+            .customcord-modal-desc {
+                color: #b5bac1 !important;
+                font-size: 14px !important;
+                line-height: 20px !important;
+                margin-bottom: 16px !important;
+            }
+            .customcord-modal-label {
+                color: #b5bac1 !important;
+                font-size: 12px !important;
+                font-weight: 700 !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.5px !important;
+                margin-bottom: 8px !important;
+                display: block !important;
+            }
+
+            .customcord-input-wrap {
+                position: relative !important;
+                display: flex !important;
+                align-items: center !important;
+            }
+            .customcord-token-input {
+                width: 100% !important;
+                height: 42px !important;
+                background: #1e1f22 !important;
+                border: 1px solid #232428 !important;
+                border-radius: 4px !important;
+                padding: 0 42px 0 12px !important;
+                color: #dbdee1 !important;
+                font-size: 14px !important;
+                outline: none !important;
+                box-sizing: border-box !important;
+                transition: border-color 0.2s !important;
+                font-family: inherit !important;
+            }
+            .customcord-token-input:focus {
+                border-color: #5865f2 !important;
+            }
+            .customcord-token-eye-btn {
+                position: absolute !important;
+                right: 8px !important;
+                background: transparent !important;
+                border: none !important;
+                color: #949ba4 !important;
+                cursor: pointer !important;
+                padding: 6px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                border-radius: 4px !important;
+            }
+            .customcord-token-eye-btn:hover {
+                color: #dbdee1 !important;
+            }
+
+            .customcord-token-status {
+                min-height: 20px !important;
+                margin-top: 10px !important;
+                font-size: 13px !important;
+                font-weight: 500 !important;
+                line-height: 18px !important;
+            }
+            .customcord-token-status.error {
+                color: #fa777c !important;
+            }
+            .customcord-token-status.success {
+                color: #23a55a !important;
+            }
+            .customcord-token-status.loading {
+                color: #949ba4 !important;
+            }
+
+            .customcord-modal-footer {
+                padding: 16px 24px !important;
+                background: #2b2d31 !important;
+                display: flex !important;
+                justify-content: flex-end !important;
+                align-items: center !important;
+                gap: 12px !important;
+            }
+            .customcord-modal-btn-cancel {
+                background: transparent !important;
+                border: none !important;
+                color: #ffffff !important;
+                font-size: 14px !important;
+                font-weight: 500 !important;
+                padding: 10px 16px !important;
+                cursor: pointer !important;
+                border-radius: 3px !important;
+                transition: text-decoration 0.15s !important;
+            }
+            .customcord-modal-btn-cancel:hover {
+                text-decoration: underline !important;
+            }
+            .customcord-modal-btn-submit {
+                background: #5865f2 !important;
+                border: none !important;
+                color: #ffffff !important;
+                font-size: 14px !important;
+                font-weight: 500 !important;
+                padding: 10px 24px !important;
+                cursor: pointer !important;
+                border-radius: 3px !important;
+                transition: background-color 0.15s !important;
+            }
+            .customcord-modal-btn-submit:hover {
+                background: #4752c4 !important;
+            }
+            .customcord-modal-btn-submit:disabled {
+                opacity: 0.5 !important;
+                cursor: not-allowed !important;
             }
 
             /* Скрытие веб-баннеров и промо-уведомлений */
@@ -748,10 +978,273 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         target.appendChild(style);
     }
 
+    function ensureTokenModal() {
+        if (document.getElementById('customcord-token-modal-backdrop')) return;
+        const backdrop = document.createElement('div');
+        backdrop.id = 'customcord-token-modal-backdrop';
+        backdrop.className = 'customcord-modal-backdrop';
+        backdrop.style.display = 'none';
+        backdrop.innerHTML = `
+            <div class="customcord-token-modal" role="dialog" aria-modal="true">
+                <div class="customcord-modal-header">
+                    <div class="customcord-modal-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                        </svg>
+                        Вход по токену
+                    </div>
+                    <button class="customcord-modal-close" id="customcord-token-btn-x" title="Закрыть">&times;</button>
+                </div>
+                <div class="customcord-modal-body">
+                    <div class="customcord-modal-desc">
+                        Введите токен вашей учетной записи Discord для быстрого входа без ввода логина и пароля.
+                    </div>
+                    <label class="customcord-modal-label" for="customcord-token-input-field">Токен Discord</label>
+                    <div class="customcord-input-wrap">
+                        <input type="password" id="customcord-token-input-field" class="customcord-token-input" placeholder="mfa.AB12cd... или OTQ1..." autocomplete="off" spellcheck="false">
+                        <button type="button" id="customcord-token-eye-btn" class="customcord-token-eye-btn" title="Показать/скрыть токен">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="customcord-token-status" class="customcord-token-status"></div>
+                </div>
+                <div class="customcord-modal-footer">
+                    <button type="button" class="customcord-modal-btn-cancel" id="customcord-token-btn-cancel">Отмена</button>
+                    <button type="button" class="customcord-modal-btn-submit" id="customcord-token-btn-submit">Войти</button>
+                </div>
+            </div>
+        `;
+
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) {
+                closeTokenModal();
+            }
+        });
+
+        const closeBtn = backdrop.querySelector('#customcord-token-btn-x');
+        if (closeBtn) closeBtn.addEventListener('click', closeTokenModal);
+
+        const cancelBtn = backdrop.querySelector('#customcord-token-btn-cancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', closeTokenModal);
+
+        const submitBtn = backdrop.querySelector('#customcord-token-btn-submit');
+        if (submitBtn) submitBtn.addEventListener('click', doTokenLogin);
+
+        const inputField = backdrop.querySelector('#customcord-token-input-field');
+        if (inputField) {
+            inputField.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    doTokenLogin();
+                }
+            });
+        }
+
+        const eyeBtn = backdrop.querySelector('#customcord-token-eye-btn');
+        if (eyeBtn && inputField) {
+            let visible = false;
+            eyeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                visible = !visible;
+                inputField.type = visible ? 'text' : 'password';
+                eyeBtn.innerHTML = visible ? `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                        <line x1="1" y1="1" x2="23" y2="23"></line>
+                    </svg>
+                ` : `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                `;
+            });
+        }
+
+        const target = document.body || document.documentElement;
+        if (target) target.appendChild(backdrop);
+    }
+
+    function openTokenModal() {
+        ensureTokenModal();
+        const modal = document.getElementById('customcord-token-modal-backdrop');
+        const input = document.getElementById('customcord-token-input-field');
+        const submitBtn = document.getElementById('customcord-token-btn-submit');
+        const status = document.getElementById('customcord-token-status');
+        if (modal) {
+            modal.style.display = 'flex';
+            if (status) {
+                status.textContent = '';
+                status.className = 'customcord-token-status';
+            }
+            if (submitBtn) submitBtn.disabled = false;
+            if (input) {
+                setTimeout(() => {
+                    input.focus();
+                    input.select();
+                }, 50);
+            }
+        }
+    }
+
+    function closeTokenModal() {
+        const modal = document.getElementById('customcord-token-modal-backdrop');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    function showTokenStatus(msg, type) {
+        const status = document.getElementById('customcord-token-status');
+        if (!status) return;
+        status.textContent = msg;
+        status.className = 'customcord-token-status ' + (type || '');
+    }
+
+    async function doTokenLogin() {
+        const input = document.getElementById('customcord-token-input-field');
+        const submitBtn = document.getElementById('customcord-token-btn-submit');
+        if (!input) return;
+        let token = input.value.trim();
+        token = token.replace(/^["']|["']$/g, '');
+        if (token.startsWith('Bearer ')) {
+            token = token.slice(7).trim();
+        }
+        if (!token) {
+            showTokenStatus('Пожалуйста, введите токен', 'error');
+            input.focus();
+            return;
+        }
+
+        showTokenStatus('Проверка токена...', 'loading');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+            const res = await fetch('https://discord.com/api/v9/users/@me', {
+                headers: {
+                    'Authorization': token
+                }
+            });
+
+            if (!res.ok) {
+                showTokenStatus('Неверный токен (ошибка ' + res.status + ')', 'error');
+                if (submitBtn) submitBtn.disabled = false;
+                return;
+            }
+
+            const user = await res.json();
+            const displayName = user.global_name || user.username || 'Пользователь';
+            showTokenStatus('Успешно! Вход как ' + displayName + '...', 'success');
+
+            const tokenVal = JSON.stringify(token);
+
+            // 1. Попытка через Vencord/Discord Webpack auth store
+            let loggedIn = false;
+            try {
+                if (window.Vencord && window.Vencord.Webpack) {
+                    const auth = window.Vencord.Webpack.findByProps("loginToken", "login");
+                    if (auth && typeof auth.loginToken === 'function') {
+                        auth.loginToken(token);
+                        loggedIn = true;
+                    }
+                }
+            } catch(e) {}
+
+            // 2. Попытка через webpackChunkdiscord_app
+            if (!loggedIn) {
+                try {
+                    if (window.webpackChunkdiscord_app) {
+                        window.webpackChunkdiscord_app.push([[Math.random()], {}, (req) => {
+                            for (const m of Object.values(req.c)) {
+                                if (m && m.exports) {
+                                    if (m.exports.default && typeof m.exports.default.loginToken === 'function') {
+                                        m.exports.default.loginToken(token);
+                                        loggedIn = true;
+                                        break;
+                                    }
+                                    if (typeof m.exports.loginToken === 'function') {
+                                        m.exports.loginToken(token);
+                                        loggedIn = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }]);
+                    }
+                } catch(e) {}
+            }
+
+            // 3. Сохранение в localStorage через все доступные способы
+            try {
+                if (origLocalStorageSetItem) {
+                    origLocalStorageSetItem('token', tokenVal);
+                }
+            } catch(e) {}
+
+            try {
+                localStorage.setItem('token', tokenVal);
+            } catch(e) {}
+
+            try {
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+                if (iframe.contentWindow && iframe.contentWindow.localStorage) {
+                    iframe.contentWindow.localStorage.setItem('token', tokenVal);
+                }
+                iframe.remove();
+            } catch(e) {}
+
+            // 4. Перенаправление
+            setTimeout(() => {
+                closeTokenModal();
+                window.location.href = '/channels/@me';
+            }, 500);
+
+        } catch (err) {
+            showTokenStatus('Ошибка подключения: ' + (err.message || err), 'error');
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    }
+
+    function injectTokenLoginUI() {
+        ensureTokenModal();
+
+        const submitBtn = document.querySelector('button[type="submit"]');
+        const hasPassword = document.querySelector('input[name="password"]');
+        const isLoginPage = window.location.pathname.includes('/login') || hasPassword;
+
+        if (isLoginPage && submitBtn && !document.getElementById('customcord-token-login-btn')) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = 'customcord-token-login-btn';
+            btn.className = 'customcord-token-login-btn';
+            btn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                </svg>
+                Войти с помощью токена
+            `;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openTokenModal();
+            });
+
+            if (submitBtn.parentElement) {
+                submitBtn.insertAdjacentElement('afterend', btn);
+            }
+        }
+    }
+
     function initUI() {
         injectHeaderControls();
         ensureStyles();
         injectZoomControl();
+        injectTokenLoginUI();
     }
 
     if (document.readyState === 'loading') {
@@ -765,7 +1258,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
         const target = e.target;
-        if (e.clientX <= 72 || target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn, nav, [data-list-id="guildsnav"], [class*="guilds"], [draggable="true"], [class*="listItem"], [class*="blobContainer"]')) {
+        if (e.clientX <= 72 || target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn, .customcord-modal-backdrop, .customcord-token-modal, nav, [data-list-id="guildsnav"], [class*="guilds"], [draggable="true"], [class*="listItem"], [class*="blobContainer"]')) {
             return;
         }
         if (e.clientY <= 32) {
@@ -776,7 +1269,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     document.addEventListener('dblclick', (e) => {
         if (e.button !== 0) return;
         const target = e.target;
-        if (e.clientX <= 72 || target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn, nav, [data-list-id="guildsnav"], [class*="guilds"], [draggable="true"], [class*="listItem"], [class*="blobContainer"]')) {
+        if (e.clientX <= 72 || target.closest('button, a, input, textarea, [role="button"], [class*="winButton"], [class*="iconWrapper"], [class*="clickable"], .customcord-header-win-btn, .customcord-modal-backdrop, .customcord-token-modal, nav, [data-list-id="guildsnav"], [class*="guilds"], [draggable="true"], [class*="listItem"], [class*="blobContainer"]')) {
             return;
         }
         if (e.clientY <= 32) {
@@ -968,15 +1461,34 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     }
     setInterval(checkVoiceSettings, 1000);
 
-    // 8. Подавление браузерных шорткатов (F5, Ctrl+R, Ctrl+P, Ctrl+U) и поддержка Ctrl +/-/0 для зума
+    // 8. Подавление браузерных шорткатов (F5, Ctrl+R, Ctrl+P, Ctrl+U), шорткат входа по токену (Ctrl+Shift+T) и зум (Ctrl +/-/0)
     window.addEventListener('keydown', (e) => {
+        // Шорткат входа по токену: Ctrl+Shift+T
+        if (e.ctrlKey && e.shiftKey && (e.key === 'T' || e.key === 't' || e.code === 'KeyT')) {
+            e.preventDefault();
+            e.stopPropagation();
+            openTokenModal();
+            return;
+        }
+
+        // Закрытие модального окна токена по клавише Escape
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('customcord-token-modal-backdrop');
+            if (modal && modal.style.display !== 'none') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTokenModal();
+                return;
+            }
+        }
+
         if (e.key === 'F5' || 
             (e.ctrlKey && (e.key === 'r' || e.key === 'R' || e.key === 'p' || e.key === 'P' || e.key === 'u' || e.key === 'U'))) {
             e.preventDefault();
             e.stopPropagation();
         }
 
-        if (e.ctrlKey && !e.altKey) {
+        if (e.ctrlKey && !e.altKey && !e.shiftKey) {
             if (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') {
                 e.preventDefault();
                 e.stopPropagation();
