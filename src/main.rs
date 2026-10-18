@@ -632,11 +632,14 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 inset: 0 !important;
                 background: rgba(0, 0, 0, 0.75) !important;
                 backdrop-filter: blur(4px) !important;
-                z-index: 999999999 !important;
-                display: flex !important;
+                z-index: 2147483647 !important;
+                display: none !important;
                 align-items: center !important;
                 justify-content: center !important;
                 animation: customcordFadeIn 0.15s ease-out !important;
+            }
+            .customcord-modal-backdrop.active {
+                display: flex !important;
             }
             @keyframes customcordFadeIn {
                 from { opacity: 0; }
@@ -1055,10 +1058,16 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             });
 
             const closeBtn = backdrop.querySelector('#customcord-token-btn-x');
-            if (closeBtn) closeBtn.addEventListener('click', closeTokenModal);
+            if (closeBtn) closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeTokenModal();
+            });
 
             const cancelBtn = backdrop.querySelector('#customcord-token-btn-cancel');
-            if (cancelBtn) cancelBtn.addEventListener('click', closeTokenModal);
+            if (cancelBtn) cancelBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeTokenModal();
+            });
 
             const submitBtn = backdrop.querySelector('#customcord-token-btn-submit');
             if (submitBtn) submitBtn.addEventListener('click', doTokenLogin);
@@ -1107,7 +1116,8 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         const submitBtn = document.getElementById('customcord-token-btn-submit');
         const status = document.getElementById('customcord-token-status');
         if (modal) {
-            modal.style.display = 'flex';
+            modal.classList.add('active');
+            modal.style.setProperty('display', 'flex', 'important');
             if (status) {
                 status.textContent = '';
                 status.className = 'customcord-token-status';
@@ -1125,7 +1135,8 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     function closeTokenModal() {
         const modal = document.getElementById('customcord-token-modal-backdrop');
         if (modal) {
-            modal.style.display = 'none';
+            modal.classList.remove('active');
+            modal.style.setProperty('display', 'none', 'important');
         }
     }
 
@@ -1561,7 +1572,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         // Закрытие модального окна токена по клавише Escape
         if (e.key === 'Escape') {
             const modal = document.getElementById('customcord-token-modal-backdrop');
-            if (modal && modal.style.display !== 'none') {
+            if (modal && (modal.classList.contains('active') || modal.style.display !== 'none')) {
                 e.preventDefault();
                 e.stopPropagation();
                 closeTokenModal();
