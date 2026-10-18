@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "customcord"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "tao",
  "winres",

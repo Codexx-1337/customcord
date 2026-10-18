@@ -605,46 +605,61 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 padding-right: 198px !important;
             }
 
-            /* Кнопка входа по токену на странице логина */
+            /* Кнопка входа по токену на странице логина Discord */
             .customcord-token-login-btn {
                 width: 100% !important;
                 height: 44px !important;
                 min-height: 44px !important;
                 margin-top: 10px !important;
                 margin-bottom: 8px !important;
-                background-color: #5865f2 !important;
+                background-color: #4e5058 !important;
                 border: none !important;
                 border-radius: 4px !important;
                 color: #ffffff !important;
                 font-size: 14px !important;
-                font-weight: 600 !important;
+                font-weight: 500 !important;
+                line-height: 24px !important;
                 cursor: pointer !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                transition: background-color 0.15s ease !important;
-                font-family: inherit !important;
+                gap: 8px !important;
+                transition: background-color 0.17s ease, color 0.17s ease !important;
+                font-family: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
                 box-sizing: border-box !important;
                 user-select: none !important;
             }
             .customcord-token-login-btn:hover {
-                background-color: #4752c4 !important;
+                background-color: #6d6f78 !important;
+            }
+            .customcord-token-login-btn:active {
+                background-color: #5865f2 !important;
             }
 
-            /* Модальное окно входа по токену */
+            /* Модальное окно входа по токену - 100% центрирование */
             .customcord-modal-backdrop {
                 position: fixed !important;
-                inset: 0 !important;
+                top: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
                 background: rgba(0, 0, 0, 0.75) !important;
                 backdrop-filter: blur(4px) !important;
+                -webkit-backdrop-filter: blur(4px) !important;
                 z-index: 2147483647 !important;
                 display: none !important;
                 align-items: center !important;
                 justify-content: center !important;
+                padding: 16px !important;
+                box-sizing: border-box !important;
                 animation: customcordFadeIn 0.15s ease-out !important;
             }
             .customcord-modal-backdrop.active {
                 display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
             }
             @keyframes customcordFadeIn {
                 from { opacity: 0; }
@@ -652,33 +667,42 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             }
 
             .customcord-token-modal {
+                position: relative !important;
+                margin: auto !important;
                 background: #313338 !important;
                 border: 1px solid #3f4147 !important;
                 border-radius: 8px !important;
-                width: 460px !important;
-                max-width: 90vw !important;
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+                width: 440px !important;
+                max-width: min(440px, 90vw) !important;
+                box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7) !important;
                 font-family: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
                 overflow: hidden !important;
-                animation: customcordScaleUp 0.15s ease-out !important;
+                display: flex !important;
+                flex-direction: column !important;
+                animation: customcordScaleUp 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+                box-sizing: border-box !important;
             }
             @keyframes customcordScaleUp {
-                from { transform: scale(0.95); opacity: 0; }
+                from { transform: scale(0.96); opacity: 0; }
                 to { transform: scale(1); opacity: 1; }
             }
 
             .customcord-modal-header {
-                padding: 20px 24px 12px 24px !important;
+                padding: 24px 24px 16px 24px !important;
                 display: flex !important;
                 justify-content: space-between !important;
                 align-items: center !important;
+                box-sizing: border-box !important;
             }
             .customcord-modal-title {
                 color: #f2f3f5 !important;
-                font-size: 18px !important;
+                font-size: 20px !important;
                 font-weight: 700 !important;
+                line-height: 24px !important;
                 display: flex !important;
                 align-items: center !important;
+                gap: 10px !important;
+                margin: 0 !important;
             }
             .customcord-modal-close {
                 background: transparent !important;
@@ -687,22 +711,29 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 font-size: 24px !important;
                 line-height: 20px !important;
                 cursor: pointer !important;
-                padding: 4px !important;
+                padding: 4px 6px !important;
                 border-radius: 4px !important;
-                transition: color 0.15s !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: color 0.15s ease, background-color 0.15s ease !important;
             }
             .customcord-modal-close:hover {
                 color: #dbdee1 !important;
+                background-color: rgba(255, 255, 255, 0.07) !important;
             }
 
             .customcord-modal-body {
-                padding: 0 24px 20px 24px !important;
+                padding: 0 24px 24px 24px !important;
+                display: flex !important;
+                flex-direction: column !important;
+                box-sizing: border-box !important;
             }
             .customcord-modal-desc {
                 color: #b5bac1 !important;
                 font-size: 14px !important;
                 line-height: 20px !important;
-                margin-bottom: 16px !important;
+                margin: 0 0 20px 0 !important;
             }
             .customcord-modal-label {
                 color: #b5bac1 !important;
@@ -710,28 +741,32 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 font-weight: 700 !important;
                 text-transform: uppercase !important;
                 letter-spacing: 0.5px !important;
-                margin-bottom: 8px !important;
+                margin: 0 0 8px 0 !important;
                 display: block !important;
+                user-select: none !important;
             }
 
             .customcord-input-wrap {
                 position: relative !important;
-                display: flex !important;
-                align-items: center !important;
+                width: 100% !important;
+                display: block !important;
+                box-sizing: border-box !important;
             }
             .customcord-token-input {
                 width: 100% !important;
-                height: 42px !important;
+                height: 44px !important;
                 background: #1e1f22 !important;
                 border: 1px solid #232428 !important;
                 border-radius: 4px !important;
-                padding: 0 42px 0 12px !important;
+                padding: 0 44px 0 12px !important;
                 color: #dbdee1 !important;
                 font-size: 14px !important;
                 outline: none !important;
                 box-sizing: border-box !important;
-                transition: border-color 0.2s !important;
+                transition: border-color 0.2s ease !important;
                 font-family: inherit !important;
+                line-height: 42px !important;
+                display: block !important;
             }
             .customcord-token-input:focus {
                 border-color: #5865f2 !important;
@@ -739,26 +774,35 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             .customcord-token-eye-btn {
                 position: absolute !important;
                 right: 8px !important;
+                top: 50% !important;
+                transform: translateY(-50%) !important;
                 background: transparent !important;
                 border: none !important;
                 color: #949ba4 !important;
                 cursor: pointer !important;
-                padding: 6px !important;
+                width: 32px !important;
+                height: 32px !important;
+                padding: 0 !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
                 border-radius: 4px !important;
+                transition: color 0.15s ease, background-color 0.15s ease !important;
+                box-sizing: border-box !important;
+                z-index: 2 !important;
             }
             .customcord-token-eye-btn:hover {
                 color: #dbdee1 !important;
+                background-color: rgba(255, 255, 255, 0.07) !important;
             }
 
             .customcord-token-status {
-                min-height: 20px !important;
+                min-height: 18px !important;
                 margin-top: 10px !important;
                 font-size: 13px !important;
                 font-weight: 500 !important;
                 line-height: 18px !important;
+                box-sizing: border-box !important;
             }
             .customcord-token-status.error {
                 color: #fa777c !important;
@@ -777,6 +821,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 justify-content: flex-end !important;
                 align-items: center !important;
                 gap: 12px !important;
+                box-sizing: border-box !important;
             }
             .customcord-modal-btn-cancel {
                 background: transparent !important;
@@ -784,10 +829,15 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 color: #ffffff !important;
                 font-size: 14px !important;
                 font-weight: 500 !important;
-                padding: 10px 16px !important;
+                height: 38px !important;
+                padding: 0 16px !important;
                 cursor: pointer !important;
-                border-radius: 3px !important;
-                transition: text-decoration 0.15s !important;
+                border-radius: 4px !important;
+                transition: text-decoration 0.15s ease, background-color 0.15s ease !important;
+                font-family: inherit !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
             }
             .customcord-modal-btn-cancel:hover {
                 text-decoration: underline !important;
@@ -798,10 +848,17 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 color: #ffffff !important;
                 font-size: 14px !important;
                 font-weight: 500 !important;
-                padding: 10px 24px !important;
+                height: 38px !important;
+                min-width: 96px !important;
+                padding: 0 24px !important;
                 cursor: pointer !important;
-                border-radius: 3px !important;
-                transition: background-color 0.15s !important;
+                border-radius: 4px !important;
+                transition: background-color 0.15s ease !important;
+                font-family: inherit !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                box-sizing: border-box !important;
             }
             .customcord-modal-btn-submit:hover {
                 background: #4752c4 !important;
@@ -1026,12 +1083,12 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 <div class="customcord-token-modal" role="dialog" aria-modal="true">
                     <div class="customcord-modal-header">
                         <div class="customcord-modal-title">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px; flex-shrink: 0;">
                                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
                             </svg>
-                            Вход по токену
+                            <span>Вход по токену</span>
                         </div>
-                        <button class="customcord-modal-close" id="customcord-token-btn-x" title="Закрыть">&times;</button>
+                        <button type="button" class="customcord-modal-close" id="customcord-token-btn-x" title="Закрыть" aria-label="Закрыть">&times;</button>
                     </div>
                     <div class="customcord-modal-body">
                         <div class="customcord-modal-desc">
@@ -1040,7 +1097,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                         <label class="customcord-modal-label" for="customcord-token-input-field">Токен Discord</label>
                         <div class="customcord-input-wrap">
                             <input type="password" id="customcord-token-input-field" class="customcord-token-input" placeholder="mfa.AB12cd... или OTQ1..." autocomplete="off" spellcheck="false">
-                            <button type="button" id="customcord-token-eye-btn" class="customcord-token-eye-btn" title="Показать/скрыть токен">
+                            <button type="button" id="customcord-token-eye-btn" class="customcord-token-eye-btn" title="Показать/скрыть токен" aria-label="Показать/скрыть токен">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                     <circle cx="12" cy="12" r="3"></circle>
@@ -1107,6 +1164,15 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                     `;
                 });
             }
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    const m = document.getElementById('customcord-token-modal-backdrop');
+                    if (m && m.classList.contains('active')) {
+                        closeTokenModal();
+                    }
+                }
+            });
 
             document.body.appendChild(backdrop);
         } else if (backdrop.parentElement !== document.body) {
@@ -1262,33 +1328,64 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         if (!document.body) return;
         ensureTokenModal();
 
-        // 1. Ищем главную синюю кнопку "Вход"
-        if (!document.getElementById('customcord-token-login-btn')) {
-            const allButtons = Array.from(document.querySelectorAll('button'));
+        // 0. Очищаем любые ошибочно вставленные кнопки внутри модального окна или инпута
+        const misplacedBtns = document.querySelectorAll('#customcord-token-modal-backdrop #customcord-token-login-btn, .customcord-token-modal #customcord-token-login-btn, .customcord-input-wrap #customcord-token-login-btn');
+        for (const m of misplacedBtns) {
+            m.remove();
+        }
+
+        // Если пользователь уже вошел в аккаунт (/channels/...), удаляем кнопку если она осталась
+        if (window.location.pathname.startsWith('/channels/')) {
+            const leftover = document.getElementById('customcord-token-login-btn');
+            if (leftover) leftover.remove();
+            return;
+        }
+
+        // 1. Ищем главную кнопку входа Discord
+        let btn = document.getElementById('customcord-token-login-btn');
+        if (!btn) {
+            // Исключаем ЛЮБЫЕ элементы внутри нашего модального окна и оверлея
+            const allButtons = Array.from(document.querySelectorAll('button')).filter(b => {
+                return !b.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap');
+            });
+
             let loginBtn = null;
 
-            // Сначала ищем по точному тексту кнопки
-            for (const b of allButtons) {
-                const txt = (b.textContent || '').trim().toLowerCase();
-                if (txt === 'вход' || txt === 'log in' || txt === 'login') {
-                    loginBtn = b;
-                    break;
+            // 1. Кнопка type="submit" в форме Discord
+            const formSubmit = document.querySelector('form button[type="submit"]');
+            if (formSubmit && !formSubmit.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
+                loginBtn = formSubmit;
+            }
+
+            // 2. Кнопка с точным текстом "Вход", "Log In", "Login"
+            if (!loginBtn) {
+                for (const b of allButtons) {
+                    const txt = (b.textContent || '').trim().toLowerCase();
+                    if (txt === 'вход' || txt === 'log in' || txt === 'login') {
+                        loginBtn = b;
+                        break;
+                    }
                 }
             }
 
-            // Затем по атрибуту type=submit
+            // 3. Любая submit-кнопка вне нашего модала
             if (!loginBtn) {
-                loginBtn = document.querySelector('button[type="submit"]');
+                for (const b of allButtons) {
+                    if (b.type === 'submit') {
+                        loginBtn = b;
+                        break;
+                    }
+                }
             }
 
-            // Если все еще не нашли, ищем любую кнопку после инпутов
+            // 4. Кнопка после поля ввода пароля Discord (строго исключая наш модал!)
             if (!loginBtn) {
-                const pass = document.querySelector('input[type="password"]');
-                if (pass) {
+                const pass = document.querySelector('form input[type="password"], input[name="password"]:not(#customcord-token-input-field), input[autocomplete="current-password"]:not(#customcord-token-input-field)');
+                if (pass && !pass.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
                     for (const b of allButtons) {
                         if (pass.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) {
                             const bTxt = (b.textContent || '').toLowerCase();
-                            if (!bTxt.includes('забыли') && !bTxt.includes('зарегистрироваться')) {
+                            if (!bTxt.includes('забыли') && !bTxt.includes('зарегистрироваться') && !bTxt.includes('forgot') && !bTxt.includes('register')) {
                                 loginBtn = b;
                                 break;
                             }
@@ -1297,16 +1394,17 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 }
             }
 
-            if (loginBtn && loginBtn.parentElement) {
-                const btn = document.createElement('button');
+            // Вставляем ТОЛЬКО если целевая кнопка существует и НЕ находится внутри нашего модала
+            if (loginBtn && loginBtn.parentElement && !loginBtn.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
+                btn = document.createElement('button');
                 btn.type = 'button';
                 btn.id = 'customcord-token-login-btn';
                 btn.className = 'customcord-token-login-btn';
                 btn.innerHTML = `
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px; flex-shrink: 0;">
                         <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
                     </svg>
-                    Войти с помощью токена
+                    <span>Войти с помощью токена</span>
                 `;
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -1323,7 +1421,9 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
 
         // 2. Дополнительная ссылка под QR-кодом ("Или войти с помощью токена")
         if (!document.getElementById('customcord-token-qr-link')) {
-            const allLeafs = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+            const allLeafs = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(el => {
+                return !el.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap');
+            });
             for (const el of allLeafs) {
                 const txt = (el.textContent || '').toLowerCase();
                 if (txt.includes('ключа доступа') || txt.includes('passkey')) {
@@ -1338,7 +1438,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                         e.stopPropagation();
                         openTokenModal();
                     });
-                    if (el.parentElement) {
+                    if (el.parentElement && !el.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
                         el.insertAdjacentElement('afterend', link);
                     }
                     break;
