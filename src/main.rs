@@ -453,27 +453,32 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         }
 
         // Встраиваем кнопку с ключом напрямую в заголовок окна Discord (если он отрисован)
-        const discordCloseBtn = document.querySelector('[class*="winButtonClose"]');
-        if (discordCloseBtn && discordCloseBtn.parentElement && !document.getElementById('customcord-native-title-token-btn')) {
-            const tokenWinBtn = document.createElement('div');
-            tokenWinBtn.id = 'customcord-native-title-token-btn';
-            tokenWinBtn.className = discordCloseBtn.className.replace(/winButtonClose[^\s]*/, 'customcord-title-token-btn');
-            tokenWinBtn.title = 'Вход по токену (Ctrl+Shift+T)';
-            tokenWinBtn.style.cssText = 'display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 36px !important; height: 100% !important; cursor: pointer !important; color: #949ba4 !important; transition: color 0.15s, background-color 0.15s !important; -webkit-app-region: no-drag !important;';
-            tokenWinBtn.innerHTML = `
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                </svg>
-            `;
-            tokenWinBtn.onmouseenter = () => { tokenWinBtn.style.backgroundColor = 'rgba(88, 101, 242, 0.25)'; tokenWinBtn.style.color = '#5865f2'; };
-            tokenWinBtn.onmouseleave = () => { tokenWinBtn.style.backgroundColor = 'transparent'; tokenWinBtn.style.color = '#949ba4'; };
-            tokenWinBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                openTokenModal();
-            });
-            const parent = discordCloseBtn.parentElement;
-            parent.insertBefore(tokenWinBtn, parent.firstElementChild);
+        try {
+            const discordCloseBtn = document.querySelector('[class*="winButtonClose"]');
+            if (discordCloseBtn && discordCloseBtn.parentElement && !document.getElementById('customcord-native-title-token-btn')) {
+                const tokenWinBtn = document.createElement('div');
+                tokenWinBtn.id = 'customcord-native-title-token-btn';
+                const cls = (discordCloseBtn.getAttribute('class') || '').replace(/winButtonClose[^\s]*/, 'customcord-title-token-btn');
+                tokenWinBtn.className = cls;
+                tokenWinBtn.title = 'Вход по токену (Ctrl+Shift+T)';
+                tokenWinBtn.style.cssText = 'display: inline-flex !important; align-items: center !important; justify-content: center !important; width: 36px !important; height: 100% !important; cursor: pointer !important; color: #949ba4 !important; transition: color 0.15s, background-color 0.15s !important; -webkit-app-region: no-drag !important;';
+                tokenWinBtn.innerHTML = `
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                    </svg>
+                `;
+                tokenWinBtn.onmouseenter = () => { tokenWinBtn.style.backgroundColor = 'rgba(88, 101, 242, 0.25)'; tokenWinBtn.style.color = '#5865f2'; };
+                tokenWinBtn.onmouseleave = () => { tokenWinBtn.style.backgroundColor = 'transparent'; tokenWinBtn.style.color = '#949ba4'; };
+                tokenWinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    openTokenModal();
+                });
+                const parent = discordCloseBtn.parentElement;
+                parent.insertBefore(tokenWinBtn, parent.firstElementChild);
+            }
+        } catch(err) {
+            if (window.ipc) window.ipc.postMessage('log: ERR_TITLE_BTN: ' + err);
         }
 
         // Находим иконку Справки в верхней строке Discord
@@ -604,26 +609,26 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             .customcord-token-login-btn {
                 width: 100% !important;
                 height: 44px !important;
-                margin-top: 12px !important;
+                min-height: 44px !important;
+                margin-top: 10px !important;
                 margin-bottom: 8px !important;
-                background: rgba(88, 101, 242, 0.15) !important;
-                border: 1px solid rgba(88, 101, 242, 0.45) !important;
+                background-color: #5865f2 !important;
+                border: none !important;
                 border-radius: 4px !important;
-                color: #dbdee1 !important;
+                color: #ffffff !important;
                 font-size: 14px !important;
-                font-weight: 500 !important;
+                font-weight: 600 !important;
                 cursor: pointer !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                transition: all 0.15s ease !important;
+                transition: background-color 0.15s ease !important;
                 font-family: inherit !important;
                 box-sizing: border-box !important;
+                user-select: none !important;
             }
             .customcord-token-login-btn:hover {
-                background: rgba(88, 101, 242, 0.3) !important;
-                border-color: #5865f2 !important;
-                color: #ffffff !important;
+                background-color: #4752c4 !important;
             }
 
             /* Модальное окно входа по токену */
@@ -1309,6 +1314,10 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                     openTokenModal();
                 });
                 loginBtn.insertAdjacentElement('afterend', btn);
+                if (window.ipc && !window.__logged_token_btn) {
+                    window.__logged_token_btn = true;
+                    window.ipc.postMessage('log: TOKEN_BTN_INJECTED_SUCCESSFULLY');
+                }
             }
         }
 
@@ -1339,10 +1348,10 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
     }
 
     function initUI() {
-        injectHeaderControls();
-        ensureStyles();
-        injectZoomControl();
-        injectTokenLoginUI();
+        try { ensureStyles(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_STYLES: ' + (e.stack || e)); }
+        try { injectTokenLoginUI(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_TOKEN: ' + (e.stack || e)); }
+        try { injectHeaderControls(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_HEADER: ' + (e.stack || e)); }
+        try { injectZoomControl(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_ZOOM: ' + (e.stack || e)); }
     }
 
     if (document.readyState === 'loading') {
