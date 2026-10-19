@@ -1172,6 +1172,15 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                         closeTokenModal();
                     }
                 }
+                if (e.ctrlKey && e.shiftKey && (e.key === 'T' || e.key === 't' || e.code === 'KeyT')) {
+                    e.preventDefault();
+                    const m = document.getElementById('customcord-token-modal-backdrop');
+                    if (m && m.classList.contains('active')) {
+                        closeTokenModal();
+                    } else {
+                        openTokenModal();
+                    }
+                }
             });
 
             document.body.appendChild(backdrop);
@@ -1328,122 +1337,17 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         if (!document.body) return;
         ensureTokenModal();
 
-        // 0. Очищаем любые ошибочно вставленные кнопки внутри модального окна или инпута
+        // Оставляем кнопку входа по токену ТОЛЬКО справа сверху в заголовке окна (панели кнопок)
+        // Удаляем любые лишние кнопки со страницы логина и под QR-кодом
+        const loginBtn = document.getElementById('customcord-token-login-btn');
+        if (loginBtn) loginBtn.remove();
+
+        const qrLink = document.getElementById('customcord-token-qr-link');
+        if (qrLink) qrLink.remove();
+
         const misplacedBtns = document.querySelectorAll('#customcord-token-modal-backdrop #customcord-token-login-btn, .customcord-token-modal #customcord-token-login-btn, .customcord-input-wrap #customcord-token-login-btn');
         for (const m of misplacedBtns) {
             m.remove();
-        }
-
-        // Если пользователь уже вошел в аккаунт (/channels/...), удаляем кнопку если она осталась
-        if (window.location.pathname.startsWith('/channels/')) {
-            const leftover = document.getElementById('customcord-token-login-btn');
-            if (leftover) leftover.remove();
-            return;
-        }
-
-        // 1. Ищем главную кнопку входа Discord
-        let btn = document.getElementById('customcord-token-login-btn');
-        if (!btn) {
-            // Исключаем ЛЮБЫЕ элементы внутри нашего модального окна и оверлея
-            const allButtons = Array.from(document.querySelectorAll('button')).filter(b => {
-                return !b.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap');
-            });
-
-            let loginBtn = null;
-
-            // 1. Кнопка type="submit" в форме Discord
-            const formSubmit = document.querySelector('form button[type="submit"]');
-            if (formSubmit && !formSubmit.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
-                loginBtn = formSubmit;
-            }
-
-            // 2. Кнопка с точным текстом "Вход", "Log In", "Login"
-            if (!loginBtn) {
-                for (const b of allButtons) {
-                    const txt = (b.textContent || '').trim().toLowerCase();
-                    if (txt === 'вход' || txt === 'log in' || txt === 'login') {
-                        loginBtn = b;
-                        break;
-                    }
-                }
-            }
-
-            // 3. Любая submit-кнопка вне нашего модала
-            if (!loginBtn) {
-                for (const b of allButtons) {
-                    if (b.type === 'submit') {
-                        loginBtn = b;
-                        break;
-                    }
-                }
-            }
-
-            // 4. Кнопка после поля ввода пароля Discord (строго исключая наш модал!)
-            if (!loginBtn) {
-                const pass = document.querySelector('form input[type="password"], input[name="password"]:not(#customcord-token-input-field), input[autocomplete="current-password"]:not(#customcord-token-input-field)');
-                if (pass && !pass.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
-                    for (const b of allButtons) {
-                        if (pass.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                            const bTxt = (b.textContent || '').toLowerCase();
-                            if (!bTxt.includes('забыли') && !bTxt.includes('зарегистрироваться') && !bTxt.includes('forgot') && !bTxt.includes('register')) {
-                                loginBtn = b;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Вставляем ТОЛЬКО если целевая кнопка существует и НЕ находится внутри нашего модала
-            if (loginBtn && loginBtn.parentElement && !loginBtn.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
-                btn = document.createElement('button');
-                btn.type = 'button';
-                btn.id = 'customcord-token-login-btn';
-                btn.className = 'customcord-token-login-btn';
-                btn.innerHTML = `
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px; flex-shrink: 0;">
-                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                    </svg>
-                    <span>Войти с помощью токена</span>
-                `;
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openTokenModal();
-                });
-                loginBtn.insertAdjacentElement('afterend', btn);
-                if (window.ipc && !window.__logged_token_btn) {
-                    window.__logged_token_btn = true;
-                    window.ipc.postMessage('log: TOKEN_BTN_INJECTED_SUCCESSFULLY');
-                }
-            }
-        }
-
-        // 2. Дополнительная ссылка под QR-кодом ("Или войти с помощью токена")
-        if (!document.getElementById('customcord-token-qr-link')) {
-            const allLeafs = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(el => {
-                return !el.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap');
-            });
-            for (const el of allLeafs) {
-                const txt = (el.textContent || '').toLowerCase();
-                if (txt.includes('ключа доступа') || txt.includes('passkey')) {
-                    const link = document.createElement('button');
-                    link.type = 'button';
-                    link.id = 'customcord-token-qr-link';
-                    link.className = el.className || '';
-                    link.style.cssText = 'margin-top: 8px !important; font-size: 14px !important; color: #00a8fc !important; background: transparent !important; border: none !important; cursor: pointer !important; text-align: center !important; width: 100% !important; display: block !important;';
-                    link.textContent = 'Или войти с помощью токена';
-                    link.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        openTokenModal();
-                    });
-                    if (el.parentElement && !el.closest('#customcord-token-modal-backdrop, .customcord-token-modal, .customcord-input-wrap')) {
-                        el.insertAdjacentElement('afterend', link);
-                    }
-                    break;
-                }
-            }
         }
     }
 
