@@ -22,10 +22,12 @@ const DISCORD_URL: &str = "https://discord.com/login";
 // Чистый User-Agent Google Chrome на Windows
 const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
-// Стабильные флаги Chromium для Discord (аппаратные кодеки стрима + защита громкости Windows)
-const CHROMIUM_ADDITIONAL_ARGS: &str = "\
-    --enable-features=SharedArrayBuffer,WebRtcHWDecoding,WebRtcHWEncoding \
-    --disable-features=WebRtcAllowInputVolumeChanges";
+// Базовые флаги Chromium для Discord. Аппаратное кодирование WebRTC по умолчанию
+// отключено: на части GPU/драйверов его rate control застревает на низком
+// битрейте и демонстрация экрана выглядит пиксельной. Включить обратно можно
+// переменной окружения CUSTOMCORD_HW_ENCODE=1.
+const CHROMIUM_ENABLE_FEATURES: &str = "SharedArrayBuffer";
+const CHROMIUM_DISABLE_FEATURES: &str = "WebRtcAllowInputVolumeChanges,WebRtcHWEncoding";
 
 const VENCORD_BUNDLE: &str = include_str!("../vencord.bundle.js");
 
@@ -1714,61 +1716,312 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         }
     });
 
-    // 4. Форсирование 60 FPS для видеопотока экрана
-    if (window.MediaStreamTrack) {
-        if (MediaStreamTrack.prototype.getSettings) {
-            const origGetSettings = MediaStreamTrack.prototype.getSettings;
-            MediaStreamTrack.prototype.getSettings = function() {
-                const s = origGetSettings.apply(this, arguments);
-                if (this.kind === 'video' && s && (!s.frameRate || s.frameRate < 60)) {
-                    s.frameRate = 60;
-                }
-                return s;
+    // 4. Качество демонстрации экрана.
+    // Chromium по умолчанию ограничивает WebRTC-видео ~2.5 Мбит/с, а Discord
+    // дополнительно занижает разрешение/битрейт. Старые жёсткие лимиты
+    // (8.5 Мбит/с, 60 FPS, b=AS:8500) не давали стримить 1080p60+ с хорошим
+    // качеством. Ниже потолок считается по реальному разрешению и FPS, низкие
+    // SDP-лимиты вырезаются, а encoder просят сохранять разрешение.
+    (function() {
+        if (window.__customcord_stream_quality_installed) return;
+        window.__customcord_stream_quality_installed = true;
+
+        const displayTracks = new WeakSet();
+        const screenSenders = new Set();
+        const lastStats = new Map();
+        const originalGetDisplayMedia = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia
+            ? navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices)
+            : null;
+        const originalSetParameters = window.RTCRtpSender && RTCRtpSender.prototype.setParameters
+            ? RTCRtpSender.prototype.setParameters
+            : null;
+
+        function streamLog(msg) {
+            try { if (window.ipc) window.ipc.postMessage('log: [STREAM] ' + msg); } catch(e) {}
+        }
+
+        function markDisplayStream(stream) {
+            try {
+                const tracks = stream.getVideoTracks ? stream.getVideoTracks() : [];
+                for (const track of tracks) displayTracks.add(track);
+            } catch(e) {}
+            return stream;
+        }
+
+        if (originalGetDisplayMedia) {
+            navigator.mediaDevices.getDisplayMedia = function(constraints) {
+                try {
+                    if (constraints && constraints.video && typeof constraints.video === 'object') {
+                        const v = constraints.video;
+                        // Не перебиваем выбор пользователя в пикере Vencord.
+                        if (v.frameRate == null) v.frameRate = { ideal: 60, max: 120 };
+                    }
+                } catch(e) {}
+                const result = originalGetDisplayMedia(constraints);
+                if (result && typeof result.then === 'function') return result.then(markDisplayStream);
+                return result;
             };
         }
 
-        if (MediaStreamTrack.prototype.applyConstraints) {
-            const origApplyConstraints = MediaStreamTrack.prototype.applyConstraints;
-            MediaStreamTrack.prototype.applyConstraints = async function(constraints) {
-                if (this.kind === 'video' && constraints) {
-                    if (typeof constraints.frameRate === 'object') {
-                        constraints.frameRate.ideal = 60;
-                        constraints.frameRate.max = 60;
-                    } else if (constraints.frameRate) {
-                        constraints.frameRate = 60;
-                    }
-                }
-                return origApplyConstraints.call(this, constraints);
-            };
+        function isScreenTrack(track) {
+            if (!track || track.kind !== 'video') return false;
+            if (displayTracks.has(track)) return true;
+            try {
+                const s = track.getSettings ? track.getSettings() : null;
+                if (s && (s.displaySurface === 'monitor' || s.displaySurface === 'window' || s.displaySurface === 'browser')) return true;
+            } catch(e) {}
+            return /screen|display|monitor|window|демонстрац/i.test(String(track.label || ''));
         }
-    }
 
-    // 5. Снятие лимита битрейта WebRTC видеопотока экрана до 8.5 Мбит/с
-    if (window.RTCRtpSender && RTCRtpSender.prototype.setParameters) {
-        const origSetParameters = RTCRtpSender.prototype.setParameters;
-        RTCRtpSender.prototype.setParameters = async function(params) {
-            if (this.track && this.track.kind === 'video') {
-                if (params && params.encodings) {
-                    for (const enc of params.encodings) {
-                        enc.maxBitrate = 8500000;
-                        enc.maxFramerate = 60;
+        function trackFps(track) {
+            let fps = 60;
+            try {
+                const s = track.getSettings ? track.getSettings() : null;
+                if (s && s.frameRate) fps = Number(s.frameRate) || fps;
+            } catch(e) {}
+            return Math.max(15, Math.min(120, Math.round(fps)));
+        }
+
+        function desiredBitrate(track) {
+            let w = 1920, h = 1080;
+            try {
+                const s = track.getSettings ? track.getSettings() : null;
+                if (s && s.width && s.height) { w = s.width; h = s.height; }
+            } catch(e) {}
+            const fps = trackFps(track);
+            // ~0.09 бит/пиксель/кадр — заметно выше дефолтного потолка Chromium.
+            let bps = Math.max(854 * 480, w * h) * fps * 0.09;
+            bps = Math.max(8500000, Math.min(50000000, bps));
+            return Math.round(bps / 100000) * 100000;
+        }
+
+        function tuneEncodingParams(track, params) {
+            if (!params || !Array.isArray(params.encodings) || params.encodings.length === 0) return false;
+            const fps = trackFps(track);
+            const want = desiredBitrate(track);
+            let changed = false;
+            for (const enc of params.encodings) {
+                if (enc.active === false && params.encodings.length > 1) continue;
+                if (enc.maxBitrate == null || enc.maxBitrate < want) { enc.maxBitrate = want; changed = true; }
+                if (enc.maxFramerate == null || enc.maxFramerate < fps) { enc.maxFramerate = fps; changed = true; }
+                if (params.encodings.length === 1 && enc.scaleResolutionDownBy && enc.scaleResolutionDownBy !== 1) {
+                    enc.scaleResolutionDownBy = 1;
+                    changed = true;
+                }
+                if (enc.priority !== 'high') { enc.priority = 'high'; changed = true; }
+                if (enc.networkPriority !== 'high') { enc.networkPriority = 'high'; changed = true; }
+            }
+            // Для текста/десктопа сохраняем разрешение, для игр — плавность.
+            const hint = String(track.contentHint || '');
+            const degradation = hint === 'motion' ? 'maintain-framerate' : 'maintain-resolution';
+            if (params.degradationPreference !== degradation) {
+                params.degradationPreference = degradation;
+                changed = true;
+            }
+            return changed;
+        }
+
+        function applySenderQuality(sender, reason) {
+            if (!originalSetParameters || !sender || !isScreenTrack(sender.track)) return;
+            screenSenders.add(sender);
+            let params;
+            try { params = sender.getParameters(); } catch(e) { return; }
+            if (!tuneEncodingParams(sender.track, params)) return;
+            try {
+                originalSetParameters.call(sender, params);
+                const s = sender.track.getSettings ? sender.track.getSettings() : {};
+                streamLog('tuned (' + reason + '): ' + (s.width || '?') + 'x' + (s.height || '?') +
+                    '@' + trackFps(sender.track) + ', cap=' + Math.round(desiredBitrate(sender.track) / 1000) +
+                    'kbps, degradation=' + params.degradationPreference);
+            } catch(e) {
+                streamLog('setParameters failed: ' + (e && e.message ? e.message : e));
+            }
+        }
+
+        if (originalSetParameters) {
+            RTCRtpSender.prototype.setParameters = function(params) {
+                try {
+                    if (isScreenTrack(this.track)) tuneEncodingParams(this.track, params);
+                } catch(e) {}
+                return originalSetParameters.apply(this, arguments);
+            };
+
+            if (RTCRtpSender.prototype.replaceTrack) {
+                const originalReplaceTrack = RTCRtpSender.prototype.replaceTrack;
+                RTCRtpSender.prototype.replaceTrack = function(track) {
+                    const result = originalReplaceTrack.apply(this, arguments);
+                    if (result && typeof result.then === 'function') {
+                        return result.then(() => { applySenderQuality(this, 'replaceTrack'); });
+                    }
+                    applySenderQuality(this, 'replaceTrack');
+                    return result;
+                };
+            }
+        }
+
+        function mungeSdp(sdp, pc) {
+            let maxBps = 0;
+            try {
+                const senders = pc.getSenders ? pc.getSenders() : [];
+                for (const sender of senders) {
+                    if (sender.track && isScreenTrack(sender.track)) {
+                        maxBps = Math.max(maxBps, desiredBitrate(sender.track));
                     }
                 }
-            }
-            return origSetParameters.apply(this, arguments);
-        };
-    }
+            } catch(e) {}
+            if (!maxBps) maxBps = 8500000;
 
-    if (window.RTCPeerConnection && RTCPeerConnection.prototype.setLocalDescription) {
-        const origSetLocalDescription = RTCPeerConnection.prototype.setLocalDescription;
-        RTCPeerConnection.prototype.setLocalDescription = function(desc) {
-            if (desc && desc.sdp) {
-                desc.sdp = desc.sdp.replace(/a=framerate:[0-9.]+/g, 'a=framerate:60');
-                desc.sdp = desc.sdp.replace(/(m=video [^\r\n]+[\r\n]+)/g, '$1b=AS:8500\r\nb=TIAS:8500000\r\n');
+            const asKbps = Math.max(8500, Math.round(maxBps / 1000));
+            const tias = asKbps * 1000;
+            const eol = sdp.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+            const lines = sdp.split(/\r?\n/);
+            const out = [];
+            let inVideo = false;
+            let inserted = false;
+
+            function flushBandwidth() {
+                if (inVideo && !inserted) {
+                    out.push('b=AS:' + asKbps);
+                    out.push('b=TIAS:' + tias);
+                    inserted = true;
+                }
             }
-            return origSetLocalDescription.apply(this, arguments);
-        };
-    }
+
+            for (const line of lines) {
+                if (line.indexOf('m=') === 0) {
+                    flushBandwidth();
+                    inVideo = line.indexOf('m=video ') === 0;
+                    inserted = false;
+                    out.push(line);
+                    continue;
+                }
+                if (inVideo) {
+                    if (/^b=(AS|TIAS|CT):/i.test(line)) continue;
+                    if (/^a=fmtp:/i.test(line)) {
+                        out.push(line
+                            .replace(/x-google-max-bitrate=\d+/g, 'x-google-max-bitrate=80000')
+                            .replace(/x-google-min-bitrate=\d+/g, 'x-google-min-bitrate=1000'));
+                        continue;
+                    }
+                    if (/^c=/i.test(line)) {
+                        out.push(line);
+                        flushBandwidth();
+                        continue;
+                    }
+                }
+                out.push(line);
+            }
+            flushBandwidth();
+            return out.join(eol);
+        }
+
+        if (window.RTCPeerConnection && RTCPeerConnection.prototype) {
+            const pcProto = RTCPeerConnection.prototype;
+
+            if (pcProto.addTrack) {
+                const originalAddTrack = pcProto.addTrack;
+                pcProto.addTrack = function() {
+                    const sender = originalAddTrack.apply(this, arguments);
+                    if (sender && isScreenTrack(sender.track)) {
+                        screenSenders.add(sender);
+                        setTimeout(() => applySenderQuality(sender, 'addTrack'), 0);
+                    }
+                    return sender;
+                };
+            }
+
+            if (pcProto.addTransceiver) {
+                const originalAddTransceiver = pcProto.addTransceiver;
+                pcProto.addTransceiver = function() {
+                    const transceiver = originalAddTransceiver.apply(this, arguments);
+                    if (transceiver && transceiver.sender && isScreenTrack(transceiver.sender.track)) {
+                        screenSenders.add(transceiver.sender);
+                        setTimeout(() => applySenderQuality(transceiver.sender, 'addTransceiver'), 0);
+                    }
+                    return transceiver;
+                };
+            }
+
+            if (pcProto.setLocalDescription) {
+                const originalSetLocalDescription = pcProto.setLocalDescription;
+                pcProto.setLocalDescription = function(desc) {
+                    let munged = desc;
+                    if (desc && typeof desc.sdp === 'string') {
+                        try {
+                            munged = desc.type
+                                ? { type: desc.type, sdp: mungeSdp(desc.sdp, this) }
+                                : { sdp: mungeSdp(desc.sdp, this) };
+                        } catch(e) {
+                            streamLog('SDP munge failed: ' + (e && e.message ? e.message : e));
+                        }
+                    }
+                    const result = arguments.length === 0
+                        ? originalSetLocalDescription.call(this)
+                        : originalSetLocalDescription.call(this, munged);
+                    if (result && typeof result.then === 'function') {
+                        return result.then(() => {
+                            try {
+                                for (const sender of this.getSenders()) {
+                                    if (isScreenTrack(sender.track)) {
+                                        screenSenders.add(sender);
+                                        applySenderQuality(sender, 'setLocalDescription');
+                                    }
+                                }
+                            } catch(e) {}
+                        });
+                    }
+                    return result;
+                };
+            }
+        }
+
+        // Диагностика: пишем в debug.log реальный битрейт, разрешение и причину
+        // ограничения, чтобы можно было проверить качество без догадок.
+        let statsBusy = false;
+        setInterval(async function() {
+            if (statsBusy || !screenSenders.size) return;
+            statsBusy = true;
+            try {
+                for (const sender of Array.from(screenSenders)) {
+                    try {
+                        if (!sender || !sender.track || sender.track.readyState === 'ended' || !isScreenTrack(sender.track)) {
+                            screenSenders.delete(sender);
+                            lastStats.delete(sender);
+                            continue;
+                        }
+                        const stats = await sender.getStats();
+                        let outbound = null;
+                        stats.forEach(function(report) {
+                            if (report.type === 'outbound-rtp' && (report.kind === 'video' || report.mediaType === 'video')) outbound = report;
+                        });
+                        if (!outbound) continue;
+
+                        const now = performance.now();
+                        const prev = lastStats.get(sender);
+                        let kbps = 0;
+                        if (prev && now > prev.t) {
+                            kbps = Math.round(((outbound.bytesSent - prev.bytes) * 8) / (now - prev.t));
+                        }
+                        lastStats.set(sender, { t: now, bytes: outbound.bytesSent });
+
+                        const p = sender.getParameters();
+                        const enc = p && p.encodings && p.encodings[0] ? p.encodings[0] : {};
+                        const ts = sender.track.getSettings ? sender.track.getSettings() : {};
+                        const reason = outbound.qualityLimitationReason || 'none';
+                        streamLog('stats ' + (ts.width || '?') + 'x' + (ts.height || '?') + '@' + (outbound.framesPerSecond || ts.frameRate || '?') +
+                            ' enc=' + (outbound.frameWidth || '?') + 'x' + (outbound.frameHeight || '?') +
+                            ' bitrate=' + kbps + 'kbps target=' + Math.round((outbound.targetBitrate || 0) / 1000) +
+                            ' cap=' + Math.round((enc.maxBitrate || 0) / 1000) +
+                            ' q=' + (reason === 'cpu' ? 'encoder' : reason) +
+                            ' encoder=' + (outbound.encoderImplementation || '?') +
+                            ' degradation=' + (p.degradationPreference || '?'));
+                    } catch(e) {}
+                }
+            } finally {
+                statsBusy = false;
+            }
+        }, 10000);
+    })();
 
     // 6. Чистый нативный микрофон WebRTC (1:1 как в Discord Desktop) и Push-to-Talk
     let cachedMediaEngineStore = null;
@@ -2277,9 +2530,24 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     full_script.push_str(VENCORD_BUNDLE);
     full_script.push_str("\n} catch (err) { if (window.ipc) window.ipc.postMessage('log: VENCORD_CRASH: ' + (err.stack || err)); }\n");
 
+    let hw_encode = std::env::var("CUSTOMCORD_HW_ENCODE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let mut disable_features = String::from(CHROMIUM_DISABLE_FEATURES);
+    if hw_encode {
+        disable_features = "WebRtcAllowInputVolumeChanges".to_string();
+    }
+    if std::env::var("CUSTOMCORD_SW_DECODE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        disable_features.push_str(",WebRtcHWDecoding");
+    }
+
     let browser_args = format!(
-        "{} --disable-quic{}",
-        CHROMIUM_ADDITIONAL_ARGS,
+        "--enable-features={} --disable-features={} --disable-quic{}",
+        CHROMIUM_ENABLE_FEATURES,
+        disable_features,
         bypass
             .as_ref()
             .map(|state| state.chromium_arg())
