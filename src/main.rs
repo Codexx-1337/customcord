@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod bypass;
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -400,6 +402,186 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         if (window.ipc && !window.__customcord_logged_zoom_injected) {
             window.__customcord_logged_zoom_injected = true;
             window.ipc.postMessage('log: ZOOM_CONTROL_INJECTED_SUCCESSFULLY');
+        }
+    }
+
+    // ===== Встроенный обход блокировки (DPI) =====
+    const bypassState = Object.assign(
+        { enabled: true, doh: true, upstream: null },
+        window.__customcordBypass || {}
+    );
+    if (!bypassState.upstream) bypassState.upstream = '';
+
+    function bypassSend(message) {
+        try { if (window.ipc) window.ipc.postMessage(message); } catch(e) {}
+    }
+
+    function bypassTexts(isRu) {
+        if (isRu) {
+            return {
+                title: 'Обход блокировки Discord',
+                desc: 'Первый TLS-пакет разбивается на части, поэтому DPI провайдера не видит домен Discord. Работает без VPN.',
+                enable: 'Обход DPI (фрагментация TLS)',
+                doh: 'DNS через HTTPS (DoH)',
+                dohHint: 'Помогает, если провайдер подменяет DNS-ответы.',
+                proxy: 'Внешний прокси (если Discord блокируют по IP)',
+                apply: 'Применить',
+                note: 'Если провайдер блокирует IP-адреса Discord (например, в РФ с 2026 года), фрагментация не поможет — укажите SOCKS5 или HTTP-прокси и перезапустите клиент. Для голосовых каналов может понадобиться полноценный VPN.'
+            };
+        }
+        return {
+            title: 'Discord connection bypass',
+            desc: 'The first TLS packet is split into pieces, so ISP DPI cannot see the Discord domain. Works without a VPN.',
+            enable: 'DPI bypass (TLS fragmentation)',
+            doh: 'DNS over HTTPS (DoH)',
+            dohHint: 'Helps when the ISP spoofs DNS responses.',
+            proxy: 'Upstream proxy (if Discord is blocked by IP)',
+            apply: 'Apply',
+            note: 'If your ISP blocks Discord IP addresses (e.g. Russia since 2026), fragmentation will not help — set a SOCKS5 or HTTP proxy and restart the client. Voice channels may require a full VPN.'
+        };
+    }
+
+    function updateBypassUI() {
+        const section = document.getElementById('customcord-bypass-section');
+        if (!section) return;
+
+        const isRu = section.getAttribute('data-lang') === 'ru';
+        const toggle = section.querySelector('.customcord-bypass-switch');
+        const dohToggle = section.querySelector('.customcord-bypass-doh-switch');
+        const input = section.querySelector('#customcord-bypass-upstream');
+        const hint = section.querySelector('.customcord-bypass-hint');
+        const dohHint = section.querySelector('.customcord-bypass-doh-hint');
+
+        if (toggle) {
+            toggle.classList.toggle('customcord-bypass-switch-on', !!bypassState.enabled);
+            toggle.setAttribute('aria-checked', bypassState.enabled ? 'true' : 'false');
+        }
+        if (dohToggle) {
+            dohToggle.classList.toggle('customcord-bypass-switch-on', !!bypassState.doh);
+            dohToggle.setAttribute('aria-checked', bypassState.doh ? 'true' : 'false');
+        }
+        if (input && document.activeElement !== input) {
+            input.value = bypassState.upstream || '';
+        }
+        if (hint) {
+            if (bypassState.upstream) {
+                hint.textContent = (isRu ? 'Внешний прокси: ' : 'Upstream proxy: ') + bypassState.upstream;
+                hint.style.color = '#23a55a';
+            } else if (bypassState.enabled) {
+                hint.textContent = isRu ? 'Активно: фрагментация TLS' : 'Active: TLS fragmentation';
+                hint.style.color = '#23a55a';
+            } else {
+                hint.textContent = isRu ? 'Выключено: прямое подключение' : 'Off: direct connection';
+                hint.style.color = 'var(--text-muted, #949ba4)';
+            }
+        }
+        if (dohHint) {
+            dohHint.style.opacity = bypassState.doh ? '1' : '0.5';
+        }
+    }
+
+    function injectBypassControl() {
+        const zoom = document.getElementById('customcord-zoom-section');
+        if (!zoom) {
+            const stale = document.getElementById('customcord-bypass-section');
+            if (stale) stale.remove();
+            return;
+        }
+
+        let section = document.getElementById('customcord-bypass-section');
+        if (section) {
+            if (section.previousElementSibling !== zoom) {
+                zoom.insertAdjacentElement('afterend', section);
+            }
+            updateBypassUI();
+            return;
+        }
+
+        const isRu = (document.body.textContent || '').includes('Настройки') ||
+            (document.body.textContent || '').includes('Внешний вид');
+        const t = bypassTexts(isRu);
+
+        section = document.createElement('div');
+        section.id = 'customcord-bypass-section';
+        section.className = 'customcord-bypass-section';
+        section.setAttribute('data-lang', isRu ? 'ru' : 'en');
+        section.innerHTML = `
+            <h3 class="customcord-bypass-title">${t.title}</h3>
+            <div class="customcord-bypass-desc">${t.desc}</div>
+            <div class="customcord-bypass-row">
+                <div class="customcord-bypass-text">
+                    <div class="customcord-bypass-label">${t.enable}</div>
+                    <div class="customcord-bypass-hint"></div>
+                </div>
+                <div class="customcord-bypass-switch" role="switch" tabindex="0" aria-checked="true">
+                    <div class="customcord-bypass-knob"></div>
+                </div>
+            </div>
+            <div class="customcord-bypass-row customcord-bypass-doh-row">
+                <div class="customcord-bypass-text">
+                    <div class="customcord-bypass-label">${t.doh}</div>
+                    <div class="customcord-bypass-hint customcord-bypass-doh-hint">${t.dohHint}</div>
+                </div>
+                <div class="customcord-bypass-switch customcord-bypass-doh-switch" role="switch" tabindex="0" aria-checked="true">
+                    <div class="customcord-bypass-knob"></div>
+                </div>
+            </div>
+            <div class="customcord-bypass-proxy-label">${t.proxy}</div>
+            <div class="customcord-bypass-proxy-row">
+                <input id="customcord-bypass-upstream" class="customcord-bypass-input" type="text"
+                    spellcheck="false" autocomplete="off" placeholder="socks5://host:port">
+                <button id="customcord-bypass-apply" class="customcord-bypass-apply" type="button">${t.apply}</button>
+            </div>
+            <div class="customcord-bypass-note">${t.note}</div>
+        `;
+
+        const toggle = section.querySelector('.customcord-bypass-switch');
+        const dohToggle = section.querySelector('.customcord-bypass-doh-switch');
+        const input = section.querySelector('#customcord-bypass-upstream');
+        const applyBtn = section.querySelector('#customcord-bypass-apply');
+
+        function toggleBypass() {
+            bypassState.enabled = !bypassState.enabled;
+            bypassSend(bypassState.enabled ? 'bypass:on' : 'bypass:off');
+            updateBypassUI();
+        }
+
+        function toggleDoh() {
+            bypassState.doh = !bypassState.doh;
+            bypassSend(bypassState.doh ? 'bypass:doh:on' : 'bypass:doh:off');
+            updateBypassUI();
+        }
+
+        function applyProxy() {
+            let value = (input.value || '').trim();
+            if (value && !/^(socks5h?|socks|https?):\/\//i.test(value)) {
+                value = 'socks5://' + value;
+            }
+            bypassState.upstream = value;
+            input.value = value;
+            bypassSend('bypass:upstream:' + value);
+            updateBypassUI();
+        }
+
+        toggle.addEventListener('click', toggleBypass);
+        toggle.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBypass(); }
+        });
+        dohToggle.addEventListener('click', toggleDoh);
+        dohToggle.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDoh(); }
+        });
+        applyBtn.addEventListener('click', applyProxy);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); applyProxy(); }
+        });
+
+        zoom.insertAdjacentElement('afterend', section);
+        updateBypassUI();
+
+        if (window.ipc && !window.__customcord_logged_bypass_injected) {
+            window.__customcord_logged_bypass_injected = true;
+            window.ipc.postMessage('log: BYPASS_CONTROL_INJECTED_SUCCESSFULLY');
         }
     }
 
@@ -1066,6 +1248,149 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             .customcord-zoom-grabbing * {
                 cursor: grabbing !important;
             }
+
+            /* Bypass (DPI) section */
+            .customcord-bypass-section {
+                display: block !important;
+                position: relative !important;
+                margin: 8px 0 24px 0 !important;
+            }
+
+            .customcord-bypass-title {
+                font-size: 16px !important;
+                font-weight: 600 !important;
+                line-height: 20px !important;
+                color: var(--header-primary, #f2f3f5) !important;
+                margin: 0 0 8px 0 !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
+
+            .customcord-bypass-desc {
+                font-size: 14px !important;
+                line-height: 18px !important;
+                color: var(--text-muted, #949ba4) !important;
+                margin: 0 0 8px 0 !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
+
+            .customcord-bypass-row {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 16px !important;
+                padding: 10px 0 !important;
+            }
+
+            .customcord-bypass-doh-row {
+                padding-top: 2px !important;
+            }
+
+            .customcord-bypass-text {
+                min-width: 0 !important;
+            }
+
+            .customcord-bypass-label {
+                font-size: 14px !important;
+                font-weight: 500 !important;
+                color: var(--header-primary, #f2f3f5) !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
+
+            .customcord-bypass-hint {
+                font-size: 12px !important;
+                line-height: 16px !important;
+                margin-top: 2px !important;
+                color: var(--text-muted, #949ba4) !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
+
+            .customcord-bypass-switch {
+                position: relative !important;
+                flex: 0 0 auto !important;
+                width: 40px !important;
+                height: 24px !important;
+                border-radius: 12px !important;
+                background-color: #80848e !important;
+                cursor: pointer !important;
+                transition: background-color 0.15s ease !important;
+            }
+
+            .customcord-bypass-switch-on {
+                background-color: var(--brand-500, #5865f2) !important;
+            }
+
+            .customcord-bypass-knob {
+                position: absolute !important;
+                top: 4px !important;
+                left: 4px !important;
+                width: 16px !important;
+                height: 16px !important;
+                border-radius: 50% !important;
+                background-color: #ffffff !important;
+                transition: left 0.15s ease !important;
+            }
+
+            .customcord-bypass-switch-on .customcord-bypass-knob {
+                left: 20px !important;
+            }
+
+            .customcord-bypass-proxy-label {
+                font-size: 14px !important;
+                font-weight: 500 !important;
+                color: var(--header-primary, #f2f3f5) !important;
+                margin: 6px 0 8px 0 !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
+
+            .customcord-bypass-proxy-row {
+                display: flex !important;
+                gap: 8px !important;
+            }
+
+            .customcord-bypass-input {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                height: 40px !important;
+                padding: 0 12px !important;
+                border-radius: 8px !important;
+                border: 1px solid #1e1f22 !important;
+                background-color: #1e1f22 !important;
+                color: var(--text-normal, #dbdee1) !important;
+                font-size: 14px !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+                outline: none !important;
+                box-sizing: border-box !important;
+            }
+
+            .customcord-bypass-input:focus {
+                border-color: var(--brand-500, #5865f2) !important;
+            }
+
+            .customcord-bypass-apply {
+                flex: 0 0 auto !important;
+                height: 40px !important;
+                padding: 0 16px !important;
+                border: none !important;
+                border-radius: 8px !important;
+                background-color: var(--brand-500, #5865f2) !important;
+                color: #ffffff !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                cursor: pointer !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
+
+            .customcord-bypass-apply:hover {
+                background-color: var(--brand-560, #4752c4) !important;
+            }
+
+            .customcord-bypass-note {
+                font-size: 12px !important;
+                line-height: 16px !important;
+                color: var(--text-muted, #949ba4) !important;
+                margin-top: 10px !important;
+                font-family: var(--font-primary, "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif) !important;
+            }
         `;
         target.appendChild(style);
     }
@@ -1356,6 +1681,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
         try { injectTokenLoginUI(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_TOKEN: ' + (e.stack || e)); }
         try { injectHeaderControls(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_HEADER: ' + (e.stack || e)); }
         try { injectZoomControl(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_ZOOM: ' + (e.stack || e)); }
+        try { injectBypassControl(); } catch(e) { if (window.ipc) window.ipc.postMessage('log: ERR_BYPASS: ' + (e.stack || e)); }
     }
 
     if (document.readyState === 'loading') {
@@ -1865,6 +2191,19 @@ fn main() {
 fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     log_debug(&format!("\n=== Customcord process started at {:?} ===", std::time::SystemTime::now()));
 
+    // Встроенный обход блокировок: локальный SOCKS5-прокси с фрагментацией TLS.
+    let bypass = bypass::start();
+    match bypass.as_ref() {
+        Some(state) => log_debug(&format!(
+            "[BYPASS] SOCKS5 on 127.0.0.1:{} enabled={} doh={} upstream={}",
+            state.port,
+            state.enabled(),
+            state.doh_enabled(),
+            if state.upstream().is_some() { "yes" } else { "no" }
+        )),
+        None => log_debug("[BYPASS] failed to start local proxy, using direct connection"),
+    }
+
     let event_loop: EventLoop<AppCmd> = EventLoopBuilder::<AppCmd>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
@@ -1920,8 +2259,17 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     let mut web_context = WebContext::new(Some(data_dir));
 
     let mut full_script = String::with_capacity(
-        VENCORD_BUNDLE.len() + VENCORD_POLYFILL.len() + CUSTOMCORD_INJECTION_SCRIPT.len() + 2048,
+        VENCORD_BUNDLE.len() + VENCORD_POLYFILL.len() + CUSTOMCORD_INJECTION_SCRIPT.len() + 4096,
     );
+    if let Some(state) = bypass.as_ref() {
+        full_script.push_str("window.__customcordBypass = ");
+        full_script.push_str(&state.settings_json());
+        full_script.push_str(";\n");
+    } else {
+        full_script.push_str(
+            "window.__customcordBypass = {\"enabled\":false,\"doh\":false,\"upstream\":null};\n",
+        );
+    }
     full_script.push_str(CUSTOMCORD_INJECTION_SCRIPT);
     full_script.push_str("\n;\n");
     full_script.push_str(VENCORD_POLYFILL);
@@ -1929,12 +2277,22 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     full_script.push_str(VENCORD_BUNDLE);
     full_script.push_str("\n} catch (err) { if (window.ipc) window.ipc.postMessage('log: VENCORD_CRASH: ' + (err.stack || err)); }\n");
 
+    let browser_args = format!(
+        "{} --disable-quic{}",
+        CHROMIUM_ADDITIONAL_ARGS,
+        bypass
+            .as_ref()
+            .map(|state| state.chromium_arg())
+            .unwrap_or_default()
+    );
+
     let ptt_vk = Arc::new(AtomicI32::new(20)); // CapsLock по умолчанию
     let ptt_vk_ipc = Arc::clone(&ptt_vk);
     let ipc_proxy = proxy.clone();
+    let bypass_ipc = bypass.clone();
     let webview = WebViewBuilder::with_web_context(&mut web_context)
         .with_user_agent(BROWSER_USER_AGENT)
-        .with_additional_browser_args(CHROMIUM_ADDITIONAL_ARGS)
+        .with_additional_browser_args(browser_args.as_str())
         .with_background_color((49, 51, 56, 255))
         .with_browser_accelerator_keys(false)
         .with_devtools(true)
@@ -1950,8 +2308,38 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
         })
         .with_ipc_handler(move |req| {
             let body = req.body();
-            log_debug(&format!("[IPC] {}", body));
-            if body.starts_with("ptt_key:") {
+            // Не пишем пароль от внешнего прокси в debug.log.
+            let log_body = if body.starts_with("bypass:upstream:") {
+                "bypass:upstream:<redacted>".to_string()
+            } else {
+                body.clone()
+            };
+            log_debug(&format!("[IPC] {}", log_body));
+            if let Some(command) = body.strip_prefix("bypass:") {
+                if let Some(state) = bypass_ipc.as_ref() {
+                    match command {
+                        "on" => state.set_enabled(true),
+                        "off" => state.set_enabled(false),
+                        "doh:on" => state.set_doh(true),
+                        "doh:off" => state.set_doh(false),
+                        _ => {
+                            if let Some(value) = command.strip_prefix("upstream:") {
+                                state.set_upstream(if value.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(value.to_string())
+                                });
+                            }
+                        }
+                    }
+                    log_debug(&format!(
+                        "[BYPASS] settings updated: enabled={} doh={} upstream={}",
+                        state.enabled(),
+                        state.doh_enabled(),
+                        if state.upstream().is_some() { "yes" } else { "no" }
+                    ));
+                }
+            } else if body.starts_with("ptt_key:") {
                 let parts: Vec<&str> = body.trim_start_matches("ptt_key:").split(':').collect();
                 if parts.len() >= 2 {
                     let dev_type: i32 = parts[0].parse().unwrap_or(0);
