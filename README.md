@@ -97,10 +97,10 @@ customcord.exe
 
 ## 🖥️ Диагностика качества стрима
 
-Customcord пишет в `%APPDATA%\Customcord\debug.log` строки вида:
+Customcord пишет `debug.log` рядом с `customcord.exe` (в той же папке) строки вида:
 
 ```
-[STREAM] stats 1920x1080@60 enc=1920x1080 bitrate=8120kbps target=8200kbps cap=11200kbps q=none encoder=OpenH264 degradation=maintain-resolution
+[IPC] log: [STREAM] stats 1920x1080@60 enc=1920x1080 bitrate=8120kbps target=8200kbps cap=11200kbps q=none encoder=OpenH264 degradation=maintain-resolution
 ```
 
 - `q=bandwidth` — не хватает исходящего канала или UDP/порт заблокирован; поможет VPN/прокси с UDP.
