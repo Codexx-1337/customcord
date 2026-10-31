@@ -295,8 +295,12 @@ fn handle_client(mut client: TcpStream, state: Arc<Bypass>) {
 
     let target = match socks_handshake(&mut client) {
         Ok(target) => target,
-        Err(_) => return,
+        Err(err) => {
+            crate::log_debug(&format!("[BYPASS] SOCKS handshake failed: {}", err));
+            return;
+        }
     };
+    crate::log_debug(&format!("[BYPASS] request {}:{}", target.host, target.port));
 
     let upstream = state.upstream();
     let remote = match upstream.as_deref() {
@@ -351,7 +355,7 @@ fn handle_client(mut client: TcpStream, state: Arc<Bypass>) {
 
     // Внешний прокси уже обходит DPI — фрагментация не нужна.
     let fragment = state.enabled() && upstream.is_none();
-    relay(client, remote, fragment);
+    relay(client, remote, fragment, &format!("{}:{}", target.host, target.port));
 }
 
 fn socks_handshake(client: &mut TcpStream) -> io::Result<Target> {
@@ -811,8 +815,9 @@ fn base64_encode(input: &[u8]) -> String {
 // Передача данных и фрагментация TLS ClientHello
 // ---------------------------------------------------------------------------
 
-fn relay(mut client: TcpStream, mut remote: TcpStream, fragment: bool) {
-    if forward_first_flight(&mut client, &mut remote, fragment).is_err() {
+fn relay(mut client: TcpStream, mut remote: TcpStream, fragment: bool, target: &str) {
+    if let Err(err) = forward_first_flight(&mut client, &mut remote, fragment) {
+        crate::log_debug(&format!("[BYPASS] {} first flight failed: {}", target, err));
         return;
     }
 
@@ -825,14 +830,23 @@ fn relay(mut client: TcpStream, mut remote: TcpStream, fragment: bool) {
         Err(_) => return,
     };
 
+    let upload_target = target.to_owned();
     let upload = thread::spawn(move || {
         let mut reader = client_reader;
         let mut writer = remote_writer;
-        let _ = io::copy(&mut reader, &mut writer);
+        if let Err(err) = io::copy(&mut reader, &mut writer) {
+            crate::log_debug(&format!("[BYPASS] {} upload failed: {}", upload_target, err));
+        }
         let _ = writer.shutdown(Shutdown::Write);
     });
 
-    let _ = io::copy(&mut remote, &mut client);
+    match io::copy(&mut remote, &mut client) {
+        Ok(0) => crate::log_debug(&format!(
+            "[BYPASS] {} closed without a server response (TCP connect alone is not bypass success)", target
+        )),
+        Err(err) => crate::log_debug(&format!("[BYPASS] {} download failed: {}", target, err)),
+        Ok(_) => {}
+    }
     let _ = client.shutdown(Shutdown::Write);
     let _ = upload.join();
 }
@@ -1467,4 +1481,69 @@ mod tests {
             Some("socks5://127.0.0.1:9050")
         );
     }
+}
+
+/// Diagnose network access independently of WebView2. Preferences are not saved.
+pub fn diagnose(state: &Bypass) -> io::Result<PathBuf> {
+    use std::process::Command;
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
+    let folder = std::env::current_exe()?.parent()
+        .ok_or_else(|| io::Error::other("executable directory unavailable"))?.to_path_buf();
+    let path = folder.join("bypass-diagnostics.txt");
+    let mut report = std::fs::File::create(&path)?;
+    writeln!(report, "Customcord {} network diagnostics", env!("CARGO_PKG_VERSION"))?;
+    writeln!(report, "Tests use curl, not WebView2. HTTP responses prove transport only; voice is not tested.")?;
+    writeln!(report, "Started: {:?}", std::time::SystemTime::now())?;
+    report.flush()?;
+
+    let curl = std::env::var_os("SystemRoot").map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+        .join("System32").join("curl.exe");
+    // Runtime flags are restored after testing; preferences are never saved.
+    let enabled = state.enabled();
+    let doh = state.doh_enabled();
+    let upstream = state.upstream();
+    let result = (|| {
+        for mode in ["direct", "fragment-system-dns", "fragment-doh", "configured"] {
+            state.enabled.store(if mode == "configured" { enabled } else { true }, Ordering::Relaxed);
+            state.doh.store(if mode == "configured" { doh } else { mode == "fragment-doh" }, Ordering::Relaxed);
+            *lock(&state.upstream) = if mode == "configured" { upstream.clone() } else { None };
+            for url in ["https://discord.com/login", "https://gateway.discord.gg/"] {
+                writeln!(report, "\nmode={} url={}", mode, url)?;
+                report.flush()?;
+                let mut command = Command::new(&curl);
+                command.args(["-q", "--silent", "--show-error", "--head",
+                    "--connect-timeout", "8", "--max-time", "15", "--output", "NUL",
+                    "--write-out", "http=%{http_code} remote=%{remote_ip} tls_verify=%{ssl_verify_result} total=%{time_total}\n"]);
+                if mode == "direct" {
+                    command.args(["--proxy", "", "--noproxy", "*"]);
+                } else {
+                    command.args(["--noproxy", "", "--socks5-hostname", &format!("127.0.0.1:{}", state.port)]);
+                }
+                command.arg(url);
+                #[cfg(windows)]
+                command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                match command.output() {
+                    Ok(output) => {
+                        writeln!(report, "exit={:?}", output.status.code())?;
+                        report.write_all(&output.stdout)?;
+                        report.write_all(&output.stderr)?;
+                    }
+                    Err(err) => {
+                        writeln!(report, "Cannot run system curl: {}", err)?;
+                        return Err(err);
+                    }
+                }
+                report.flush()?;
+            }
+        }
+        Ok(())
+    })();
+    state.enabled.store(enabled, Ordering::Relaxed);
+    state.doh.store(doh, Ordering::Relaxed);
+    *lock(&state.upstream) = upstream;
+    result?;
+    Ok(path)
 }

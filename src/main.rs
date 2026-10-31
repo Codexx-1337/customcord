@@ -2457,6 +2457,14 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
         None => log_debug("[BYPASS] failed to start local proxy, using direct connection"),
     }
 
+    if std::env::args().any(|arg| arg == "--diagnose-bypass") {
+        let state = bypass.as_ref().ok_or("local proxy could not start")?;
+        let path = bypass::diagnose(state)?;
+        log_debug(&format!("[BYPASS] diagnostic report: {}", path.display()));
+        return Ok(());
+    }
+
+    log_debug("[STARTUP] creating event loop and window");
     let event_loop: EventLoop<AppCmd> = EventLoopBuilder::<AppCmd>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
@@ -2509,6 +2517,7 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let data_dir = appdata.join("Customcord");
 
+    log_debug("[STARTUP] window created; preparing WebView2");
     let mut web_context = WebContext::new(Some(data_dir));
 
     let mut full_script = String::with_capacity(
@@ -2558,7 +2567,16 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
     let ptt_vk_ipc = Arc::clone(&ptt_vk);
     let ipc_proxy = proxy.clone();
     let bypass_ipc = bypass.clone();
-    let webview = WebViewBuilder::with_web_context(&mut web_context)
+    log_debug("[STARTUP] creating WebView2 environment and controller");
+    let webview_ready = Arc::new(AtomicBool::new(false));
+    let ready_watch = Arc::clone(&webview_ready);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(15));
+        if !ready_watch.load(Ordering::Acquire) {
+            log_debug("[STARTUP] WebView2 creation has not completed after 15s; navigation and proxy traffic may not have started");
+        }
+    });
+    let webview_result = WebViewBuilder::with_web_context(&mut web_context)
         .with_user_agent(BROWSER_USER_AGENT)
         .with_additional_browser_args(browser_args.as_str())
         .with_background_color((49, 51, 56, 255))
@@ -2632,7 +2650,10 @@ fn run_app() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .with_url(DISCORD_URL)
-        .build(&window)?;
+        .build(&window);
+    webview_ready.store(true, Ordering::Release);
+    let webview = webview_result?;
+    log_debug("[STARTUP] WebView2 created; entering event loop");
 
     let is_running = Arc::new(AtomicBool::new(true));
     start_background_optimizer(Arc::clone(&is_running));
