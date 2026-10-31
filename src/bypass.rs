@@ -2,9 +2,9 @@
 //!
 //! Поднимает локальный SOCKS5-прокси на 127.0.0.1 и переключает на него
 //! WebView2 через `--proxy-server`. Когда обход включён, прокси разбивает
-//! первый TLS ClientHello на несколько TCP-сегментов (тот же приём, что
-//! используют GoodbyeDPI/Zapret): DPI не видит целый SNI и не блокирует
-//! соединение. Дополнительно поддерживается внешний SOCKS5/HTTP-прокси —
+//! первый TLS record ClientHello на две TLS-записи внутри SNI. Это может
+//! обходить DPI, не собирающий имя между записями; результат зависит
+//! от фильтрации провайдера. Дополнительно поддерживается внешний SOCKS5/HTTP-прокси —
 //! он нужен там, где Discord блокируют по IP-адресу, а не по SNI.
 
 use std::collections::HashMap;
@@ -506,7 +506,7 @@ fn parse_proxy(input: &str) -> Option<Proxy> {
 
     let scheme = match scheme.as_str() {
         "socks" | "socks5" | "socks5h" => ProxyScheme::Socks5,
-        "http" | "https" => ProxyScheme::Http,
+        "http" => ProxyScheme::Http,
         _ => return None,
     };
 
@@ -842,42 +842,63 @@ fn forward_first_flight(
     remote: &mut TcpStream,
     fragment: bool,
 ) -> io::Result<()> {
-    // ClientHello отправляется сразу после ответа SOCKS5, поэтому ждём
-    // недолго: иначе замедлим соединения без начальных данных.
-    client.set_read_timeout(Some(Duration::from_millis(250)))?;
-
-    let mut buffer = [0u8; 16 * 1024];
-    let count = match client.read(&mut buffer) {
-        Ok(0) => return Ok(()),
-        Ok(count) => count,
-        Err(err)
-            if matches!(
-                err.kind(),
-                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-            ) =>
-        {
-            return Ok(())
-        }
-        Err(err) => return Err(err),
-    };
-
-    client.set_read_timeout(None)?;
-
-    if fragment && count >= 5 && buffer[0] == 0x16 {
-        if let Some(position) = tls_split_position(&buffer[..count]) {
-            let position = position.clamp(1, count - 1);
-
-            remote.write_all(&buffer[..position])?;
-            remote.flush()?;
-            thread::sleep(Duration::from_millis(FRAGMENT_DELAY_MS));
-            remote.write_all(&buffer[position..count])?;
-            remote.flush()?;
-            return Ok(());
-        }
+    if !fragment {
+        return Ok(());
     }
 
-    remote.write_all(&buffer[..count])?;
-    remote.flush()
+    // TCP reads do not preserve TLS record boundaries. Buffer the first record
+    // before looking for SNI, including large modern ClientHello messages.
+    let previous_timeout = client.read_timeout()?;
+    client.set_read_timeout(Some(Duration::from_secs(20)))?;
+    let result = (|| {
+        let mut first = [0u8; 1];
+        if client.read(&mut first)? == 0 {
+            return Ok(());
+        }
+        if first[0] != 0x16 {
+            return remote.write_all(&first);
+        }
+        let mut header = [0u8; 5];
+        header[0] = first[0];
+        client.read_exact(&mut header[1..])?;
+        let size = u16::from_be_bytes([header[3], header[4]]) as usize;
+        if size == 0 || size > 16 * 1024 || header[1] != 3 {
+            return remote.write_all(&header);
+        }
+        let mut record = header.to_vec();
+        record.resize(5 + size, 0);
+        client.read_exact(&mut record[5..])?;
+        if let Some(position) = tls_split_position(&record) {
+            if let Some((first, second)) = split_tls_record(&record, position) {
+                remote.write_all(&first)?;
+                thread::sleep(Duration::from_millis(FRAGMENT_DELAY_MS));
+                return remote.write_all(&second);
+            }
+        }
+        remote.write_all(&record)
+    })();
+    // Restore on every exit path. A timeout must never leak into the relay.
+    let restored = client.set_read_timeout(previous_timeout);
+    result.and(restored)
+}
+
+/// Split the handshake payload into two valid TLS records. Unlike two writes
+/// into one record, these boundaries survive TCP coalescing along the route.
+fn split_tls_record(record: &[u8], position: usize) -> Option<(Vec<u8>, Vec<u8>)> {
+    if record.len() < 5 || record[0] != 0x16 {
+        return None;
+    }
+    let size = u16::from_be_bytes([record[3], record[4]]) as usize;
+    if record.len() != 5 + size || position <= 5 || position >= record.len() {
+        return None;
+    }
+    let make_record = |payload: &[u8]| {
+        let mut output = record[..3].to_vec();
+        output.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        output.extend_from_slice(payload);
+        output
+    };
+    Some((make_record(&record[5..position]), make_record(&record[position..])))
 }
 
 /// Ищет позицию внутри SNI-хоста. Разрез посреди имени ломает
@@ -1029,10 +1050,16 @@ fn parse_doh_json(body: &str) -> Vec<IpAddr> {
     let mut ips = Vec::new();
     let mut cursor = 0;
 
-    while let Some(position) = body[cursor..].find("\"data\":\"") {
+    while let Some(position) = body[cursor..].find("\"data\"") {
         let absolute = cursor + position;
-        let data_start = absolute + 8;
-        let rest = &body[data_start..];
+        let tail = body[absolute + 6..].trim_start();
+        let Some(value) = tail.strip_prefix(':').map(str::trim_start) else {
+            break;
+        };
+        let Some(rest) = value.strip_prefix('"') else {
+            break;
+        };
+        let data_start = body.len() - rest.len();
         let Some(end) = rest.find('"') else {
             break;
         };
@@ -1327,6 +1354,71 @@ mod tests {
     }
 
     #[test]
+    fn tls_records_preserve_handshake_and_split_hostname() {
+        let (hello, _) = client_hello("discord.com");
+        let position = tls_split_position(&hello).unwrap();
+        let (first, second) = split_tls_record(&hello, position).unwrap();
+        for record in [&first, &second] {
+            assert_eq!(record.len() - 5, u16::from_be_bytes([record[3], record[4]]) as usize);
+            assert!(!record.windows(11).any(|part| part == b"discord.com"));
+        }
+        let payload: Vec<u8> = first[5..].iter().chain(&second[5..]).copied().collect();
+        assert_eq!(payload, hello[5..]);
+        assert!(split_tls_record(&hello, 5).is_none());
+        assert!(split_tls_record(&hello, hello.len()).is_none());
+    }
+
+    fn socket_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        (listener.accept().unwrap().0, peer)
+    }
+
+    #[test]
+    fn fragmented_tcp_reads_are_reassembled_and_timeout_restored() {
+        let (mut client, mut browser) = socket_pair();
+        let (mut remote, mut server) = socket_pair();
+        server.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let timeout = Some(Duration::from_secs(2));
+        client.set_read_timeout(timeout).unwrap();
+        let (hello, _) = client_hello("discord.com");
+        let expected = hello.clone();
+        let sender = thread::spawn(move || {
+            for part in hello.chunks(3) {
+                browser.write_all(part).unwrap();
+                thread::sleep(Duration::from_millis(1));
+            }
+        });
+        forward_first_flight(&mut client, &mut remote, true).unwrap();
+        assert_eq!(client.read_timeout().unwrap(), timeout);
+        let mut output = vec![0; expected.len() + 5];
+        server.read_exact(&mut output).unwrap();
+        let first_end = 5 + u16::from_be_bytes([output[3], output[4]]) as usize;
+        let payload: Vec<_> = output[5..first_end].iter()
+            .chain(&output[first_end + 5..]).copied().collect();
+        assert_eq!(payload, expected[5..]);
+        sender.join().unwrap();
+    }
+
+    #[test]
+    fn eof_restores_timeout_and_direct_mode_does_not_read() {
+        let (mut client, browser) = socket_pair();
+        let (mut remote, _server) = socket_pair();
+        forward_first_flight(&mut client, &mut remote, false).unwrap();
+        assert_eq!(client.read_timeout().unwrap(), None);
+        browser.shutdown(Shutdown::Write).unwrap();
+        forward_first_flight(&mut client, &mut remote, true).unwrap();
+        assert_eq!(client.read_timeout().unwrap(), None);
+    }
+
+    #[test]
+    fn parses_formatted_doh_json() {
+        assert_eq!(parse_doh_json(r#"{ "Status": 0, "Answer": [
+            { "type": 1, "data": "162.159.137.232" }
+        ] }"#), vec!["162.159.137.232".parse::<IpAddr>().unwrap()]);
+    }
+
+    #[test]
     fn splits_inside_sni_hostname() {
         let (hello, name_offset) = client_hello("discord.com");
         let split = tls_split_position(&hello).expect("split position");
@@ -1356,6 +1448,7 @@ mod tests {
         assert_eq!(proxy.port, 8080);
 
         assert!(parse_proxy("ftp://example.com").is_none());
+        assert!(parse_proxy("https://example.com").is_none());
     }
 
     #[test]

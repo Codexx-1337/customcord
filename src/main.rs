@@ -428,7 +428,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
                 dohHint: 'Помогает, если провайдер подменяет DNS-ответы.',
                 proxy: 'Внешний прокси (если Discord блокируют по IP)',
                 apply: 'Применить',
-                note: 'Если провайдер блокирует IP-адреса Discord (например, в РФ с 2026 года), фрагментация не поможет — укажите SOCKS5 или HTTP-прокси и перезапустите клиент. Для голосовых каналов может понадобиться полноценный VPN.'
+                note: 'Если провайдер блокирует IP-адреса Discord, фрагментация не поможет — укажите SOCKS5 или HTTP-прокси и перезапустите клиент. Для голосовых каналов может понадобиться полноценный VPN.'
             };
         }
         return {
@@ -439,7 +439,7 @@ const CUSTOMCORD_INJECTION_SCRIPT: &str = r#"
             dohHint: 'Helps when the ISP spoofs DNS responses.',
             proxy: 'Upstream proxy (if Discord is blocked by IP)',
             apply: 'Apply',
-            note: 'If your ISP blocks Discord IP addresses (e.g. Russia since 2026), fragmentation will not help — set a SOCKS5 or HTTP proxy and restart the client. Voice channels may require a full VPN.'
+            note: 'If your ISP blocks Discord IP addresses, fragmentation will not help — set a SOCKS5 or HTTP proxy and restart the client. Voice channels may require a full VPN.'
         };
     }
 
